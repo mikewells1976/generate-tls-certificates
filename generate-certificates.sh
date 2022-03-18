@@ -17,7 +17,7 @@ echo 'Please enter the hostnames (FQDN) of every Cassandra node (space separated
 read -a hostNames
 
 read -p 'Do you want me to resolve the hostnames automatically instead of manually entering the IP addresses for every node? [y|n] ' resolveHostName
-read -p "Do you want me to automatically generate a secure certificate password (instead of manually entering one)? [y|n] " enterPwd
+read -p "Do you want me to automatically generate a secure certificate password (instead of manually entering one)? [y|n] " generatePwd
 
 # Set default values
 validity=${validity:-365}
@@ -26,11 +26,11 @@ keySize=${keySize:-2048}
 
 pwd=''
 
-if [[ $enterPwd == "y" ]]; then
+if [[ $generatePwd == "y" ]]; then
    echo 'Generating secure password for keystores'
    pwd=$(openssl rand -hex 20)
    echo "Generated password is $pwd"
-   pwd="123456" #TODO generate one! Keytool min is 6 chars
+   #pwd="123456" #TODO generate one! Keytool min is 6 chars
 else
    read -s -p 'Please enter a password for the certificates and truststores: ' pwd
    echo
@@ -66,6 +66,7 @@ fi
 
 #TODO: verify hostnames aren't empty
 
+
 # Verify keySize is valid (1024, 2048, 4096, 8192)
 if [[ $keySize != 1024 && $keySize != 2048 && $keySize != 4096 && $keySize != 8192 ]]; then
    echo 'Invalid input: Key size should be of size 1024, 2048, 4096 or 8192 bit'
@@ -78,7 +79,6 @@ echo Cluster name: $clusterName
 echo Nodes: ${hostNames[@]}
 echo Validity: $validity
 echo Key size: $keySize
-echo Password: $pwd
 echo Resolve hostnames? $resolveHostName
 
 # Cleanup previous runs
@@ -103,7 +103,7 @@ default_bits        = $keySize
 
 [req_distinguished_name]
 C     = BE
-O     = DataMinerCassandra
+O     = Cassandra
 CN    = rootCA
 OU    = $clusterName" > generate_rootCA.conf
 
@@ -143,7 +143,7 @@ do
    keytool -keystore $i-node-keystore.jks -alias rootCA -importcert -file rootCA.crt -keypass $pwd -storepass $pwd -noprompt
 
    echo "Generating new key pair for node: $i"
-   keytool -genkeypair -keyalg RSA -alias $i -keystore $i-node-keystore.jks -storepass $pwd -keypass $pwd -validity $validity -keysize $keySize -dname "CN=$i, OU=$clusterName, O=DataMiner, C=BE" -ext "san=ip:$nodeIp"
+   keytool -genkeypair -keyalg RSA -alias $i -keystore $i-node-keystore.jks -storepass $pwd -keypass $pwd -validity $validity -keysize $keySize -dname "CN=$i, OU=$clusterName, O=Cassandra, C=BE" -ext "san=ip:$nodeIp"
 
    echo "Creating signing request"
    keytool -keystore $i-node-keystore.jks -alias $i -certreq -file $i.csr -keypass $pwd -storepass $pwd
@@ -206,7 +206,7 @@ YELLOW='\033[1;33m'
 NC='\033[0m'
 
 # TODO: possible the root CA is enough!
-echo -e "Copy the following certificates ${YELLOW}to every DataMiner server:${NC}"
+echo -e "Copy the following certificates ${YELLOW}to every Cassandra client:${NC}"
 ls -d *-public-key.cer
 
 echo
@@ -229,56 +229,44 @@ find . -type f -iname \*.csr -delete
 find . -type f -iname \*.conf -delete
 echo "Done"
 
-echo "---- Finished generating certificates ----"
-echo
-read -p "Would you like to enable client TLS authentication? [y|n] " enableClientAuth
-echo
+# echo "---- Finished generating certificates ----"
+# echo
+# read -p "Would you like to enable client TLS authentication? [y|n] " enableClientAuth
+# echo
+# 
+# if [[ $enableClientAuth == "y" ]]; then
+#    read -p "How many client certificate should I generate? [Default: 1] " clientCount
+#    if [[ $clientCount -ge 1 ]]; then
+#       for (( c=0; c<$clientCount; c++))
+#       do
+#           echo "Generating Client Certificate $c"
+#           name=$clusterName-client-cert-$c
+#           keytool -genkeypair -alias $name -keyalg RSA -keysize $keySize -dname "CN=$name" -validity $validity -keystore $name-store.jks -storepass $pwd -keypass $pwd -storetype JKS -noprompt
+# 
+#           echo "Exporting public key"
+#           keytool -exportcert -rfc -alias $name -keystore $name-store.jks -file $name-public.cer -storepass $pwd
+# 
+#           echo "Adding public key to keystore of every cassandra node"
+#           for n in "${hostNames[@]}"
+#           do
+#               echo "Importing public key in keystore for $n"
+#               keytool -importcert -alias $name -file $name-public.cer -keystore $n-node-keystore.jks -storepass $pwd -storetype JKS -noprompt
+#           done
+#       done
+#    else
+#       echo "No client certificates will be generated"
+#    fi
+#    echo
+#    echo "Generated $clientCount certificates for client authentication"
+#    echo -e "Copy the following keystores to a matching ${YELLOW}trusted client${NC}:"
+#    ls -d *-client-cert-*-public.cer
+# fi
+# 
+# echo "---- Finished generating client certificates  ----"
+# echo
 
-if [[ $enableClientAuth == "y" ]]; then
-   read -p "How many client certificate should I generate? [Default: 1] " clientCount
-   if [[ $clientCount -ge 1 ]]; then
-      for (( c=0; c<$clientCount; c++))
-      do
-          echo "Generating Client Certificate $c"
-          name=$clusterName-client-cert-$c
-          keytool -genkeypair -alias $name -keyalg RSA -keysize $keySize -dname "CN=$name" -validity $validity -keystore $name-store.jks -storepass $pwd -keypass $pwd -storetype JKS -noprompt
-
-          echo "Exporting public key"
-          keytool -exportcert -rfc -alias $name -keystore $name-store.jks -file $name-public.cer -storepass $pwd
-
-          echo "Adding public key to keystore of every cassandra node"
-          for n in "${hostNames[@]}"
-          do
-              echo "Importing public key in keystore for $n"
-              keytool -importcert -alias $name -file $name-public.cer -keystore $n-node-keystore.jks -storepass $pwd -storetype JKS -noprompt
-          done
-      done
-   else
-      echo "No client certificates will be generated"
-   fi
-   echo
-   echo "Generated $clientCount certificates for client authentication"
-   echo -e "Copy the following keystores to a matching ${YELLOW}trusted client${NC}:"
-   ls -d *-client-cert-*-public.cer
+if [[ $generatePwd == "y" ]]; then
+   echo -e "The ${YELLOW}password${NC} is: $pwd"
 fi
 
-echo "---- Finished generating client certificates  ----"
-echo
-# echo
-# read -p "Would you like to enable encryption at rest (transparent_data_encryption)? [y|n] " enableTde
-# echo
-#
-# if [[ $enableTde == "y" ]]; then
-#    for i in "${hostNames[@]}"
-#    do
-#       #Foreach node generate a key to encrypt the data with
-#       keytool -genseckey -alias $i -keyalg AES -keystore $i-tde-keystore.jceks -keysize 256 -storetype JCEKS -storepass $pwd -keypass $pwd
-#    done
-#    echo
-#    echo -e "Copy the following encryption at rest certificates to ${YELLOW}every node${NC}:"
-#    ls -d *-tde-keystore.jceks
-# fi
-
-echo -e "The ${YELLOW}password${NC} is: $pwd"
 echo 'Script completed'
-
