@@ -206,19 +206,19 @@ YELLOW='\033[1;33m'
 NC='\033[0m'
 
 # TODO: possible the root CA is enough!
-echo -e "Copy the following certificates ${YELLOW}to every Cassandra client:${NC}"
-ls -d *-public-key.cer
+echo -e "Copy the following certificates ${YELLOW}to every Cassandra client${NC}:"
+ls -d *rootCA.cer
 
 echo
-echo -e "Copy the following keystores to the ${YELLOW}matching Cassandra node:${NC}"
+echo -e "Copy the following keystores to the ${YELLOW}matching Cassandra node${NC}:"
 ls -d *-node-keystore.jks
 
 echo
-echo "Use the following trust stores to connect using DevCenter:"
+echo -e "Use the following trust stores to connect using ${YELLOW}DevCenter${NC}:"
 ls -d *-public-truststore.jks
 
 echo
-echo -e "Keep the following files ${YELLOW}PRIVATE:${NC}"
+echo -e "Keep the following files ${YELLOW}PRIVATE${NC}:"
 ls -d rootCA*
 
 echo
@@ -227,46 +227,9 @@ echo "Deleting unused files..."
 find . -type f -iname \*.crt_signed -delete
 find . -type f -iname \*.csr -delete
 find . -type f -iname \*.conf -delete
-echo "Done"
-
-# echo "---- Finished generating certificates ----"
-# echo
-# read -p "Would you like to enable client TLS authentication? [y|n] " enableClientAuth
-# echo
-# 
-# if [[ $enableClientAuth == "y" ]]; then
-#    read -p "How many client certificate should I generate? [Default: 1] " clientCount
-#    if [[ $clientCount -ge 1 ]]; then
-#       for (( c=0; c<$clientCount; c++))
-#       do
-#           echo "Generating Client Certificate $c"
-#           name=$clusterName-client-cert-$c
-#           keytool -genkeypair -alias $name -keyalg RSA -keysize $keySize -dname "CN=$name" -validity $validity -keystore $name-store.jks -storepass $pwd -keypass $pwd -storetype JKS -noprompt
-# 
-#           echo "Exporting public key"
-#           keytool -exportcert -rfc -alias $name -keystore $name-store.jks -file $name-public.cer -storepass $pwd
-# 
-#           echo "Adding public key to keystore of every cassandra node"
-#           for n in "${hostNames[@]}"
-#           do
-#               echo "Importing public key in keystore for $n"
-#               keytool -importcert -alias $name -file $name-public.cer -keystore $n-node-keystore.jks -storepass $pwd -storetype JKS -noprompt
-#           done
-#       done
-#    else
-#       echo "No client certificates will be generated"
-#    fi
-#    echo
-#    echo "Generated $clientCount certificates for client authentication"
-#    echo -e "Copy the following keystores to a matching ${YELLOW}trusted client${NC}:"
-#    ls -d *-client-cert-*-public.cer
-# fi
-# 
-# echo "---- Finished generating client certificates  ----"
-# echo
 
 if [[ $generatePwd == "y" ]]; then
-   echo -e "The ${YELLOW}password${NC} is: $pwd"
+   echo -e "The certificate ${YELLOW}password${NC} is: $pwd"
 fi
 
 echo 'Script completed'
