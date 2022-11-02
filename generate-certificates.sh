@@ -7,9 +7,27 @@ if [[ $(id -u) != 0 ]]; then
     exit 1
 fi
 
+# output formatting variables
+YELLOW="\033[1;33m"
+RED="\033[31m"
+NC="\033[0m"
+
 echo 'Starting Cassandra TLS encryption configuration...'
 
 read -p 'Please enter the name of your Cassandra cluster: [Default: DMS] ' clusterName
+
+# Check if the provided clustername contains non-ASCII/special characters
+if [[ $(grep -P "[\x80-\xFF]" <<< $clusterName) ]]; then
+   # A non ascii character was found
+   echo -e "${RED}Warning:${NC} Your clustername contains non ascii characters. This may prevent your nodes from starting up if you have internode encryption turned on."
+   read -p "Do you want to proceed? (May cause your Cassandra cluster to fail to start) [Default: n, Options y|n] " proceed
+   proceed=${proceed:n}
+   if [[ $proceed != "y" ]]; then
+      echo "Quiting..."
+      exit 2
+   fi
+fi
+
 read -p 'How long (days) should the certificates remain valid? [Default: 365 days, Min: 30, Max: 3650]? ' validity
 read -p 'How long (bit) should the certificate key size be? [Default: 2048 bit, Options: 1024|2048|4096|8192]? ' keySize
 
@@ -26,6 +44,7 @@ keySize=${keySize:-2048}
 
 pwd=''
 
+
 if [[ $generatePwd == "y" ]]; then
    echo 'Generating secure password for keystores'
    pwd=$(openssl rand -hex 20)
@@ -39,15 +58,15 @@ else
 
    # Verify passwords match
    if [[ "$pwd" != "$pwdConfirmation" ]]; then
-      echo 'Invalid input: Passwords did not match'
-      exit 2
+      echo -e "${RED}Invalid input:${NC} Passwords did not match"
+      exit 3
    fi
 
    pwdLength=${#pwd}
 
    if [[ pwdLength -le 10 ]]; then
-      echo 'Invalid input: Minimum password length is 10 characters'
-      exit 3
+      echo -e "${RED}Invalid input:${NC} Minimum password length is 10 characters"
+      exit 4
    fi
 fi
 
@@ -55,13 +74,13 @@ fi
 re='^[0-9]+$'
 
 if ! [[ $validity =~ $re  ]]; then
-   echo 'Invalid input: Certificate validity should be numeric (days)'
-   exit 4
+   echo -e "${RED}Invalid input:${NC} Certificate validity should be numeric (days)"
+   exit 5
 fi
 
 if [[ $validity -le 29 || $validity -ge 3651 ]]; then
-   echo 'Invalid input: Certificate validity should be between 30 and 3650 days'
-   exit 5
+   echo -e "${RED}Invalid input:${NC} Certificate validity should be between 30 and 3650 days"
+   exit 6
 fi
 
 #TODO: verify hostnames aren't empty
@@ -69,7 +88,7 @@ fi
 
 # Verify keySize is valid (1024, 2048, 4096, 8192)
 if [[ $keySize != 1024 && $keySize != 2048 && $keySize != 4096 && $keySize != 8192 ]]; then
-   echo 'Invalid input: Key size should be of size 1024, 2048, 4096 or 8192 bit'
+   echo -e "${RED}Invalid input:${NC} Key size should be of size 1024, 2048, 4096 or 8192 bit"
    exit 6
 fi
 
@@ -202,9 +221,6 @@ echo "---- Finished updating certificates ----"
 echo
 echo
 
-YELLOW='\033[1;33m'
-NC='\033[0m'
-
 # TODO: possible the root CA is enough!
 echo -e "Copy the following certificates ${YELLOW}to every Cassandra client${NC}:"
 ls -d *rootCA.cer
@@ -233,3 +249,4 @@ if [[ $generatePwd == "y" ]]; then
 fi
 
 echo 'Script completed'
+exit 0
