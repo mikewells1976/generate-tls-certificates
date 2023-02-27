@@ -5,8 +5,8 @@
 # Keytool and OpenSSL executable paths
 #
 
-$keytool = "C:\Program Files\Cassandra\Java\bin\keytool.exe"
-$openssl = "C:\program files\git\usr\bin\openssl.exe"
+$keytool = "path\to\keytool.exe"
+$openssl = "path\to\openssl.exe"
 
 
 # Cleaning up the working directory
