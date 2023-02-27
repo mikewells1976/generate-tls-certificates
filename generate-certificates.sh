@@ -223,7 +223,7 @@ echo
 
 # TODO: possible the root CA is enough!
 echo -e "Copy the following certificates ${YELLOW}to every Cassandra client${NC}:"
-ls -d *rootCA.cer
+ls -d *rootCA.crt
 
 echo
 echo -e "Copy the following keystores to the ${YELLOW}matching Cassandra node${NC}:"
