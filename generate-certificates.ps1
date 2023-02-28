@@ -5,8 +5,8 @@
 # Keytool and OpenSSL executable paths
 #
 
-$keytool = "path\to\keytool.exe"
-$openssl = "path\to\openssl.exe"
+$keytool = "C:\program files\Cassandra\java\bin\keytool.exe"
+$openssl = "C:\program files\git\usr\bin\openssl.exe"
 
 
 # Cleaning up the working directory
@@ -19,6 +19,7 @@ if($Clean -ine "n"){
     Remove-Item "*.cer"
     Remove-Item "*.jks"
     Remove-Item "*.conf"
+    Remove-Item "*.srl"
 }
 
 
@@ -128,7 +129,7 @@ foreach($i in $HostNames){
    & "$keytool" "-keystore" "$i-node-keystore.jks" "-alias" "$i" "-certreq" "-file" "$i.csr" "-keypass" "$Password" "-storepass" "$Password"
 
    # Add both hostname and IP as subject alternative name
-   Write-Host "subjectAltName=DNS:$i,IP:$nodeIp" > $i.conf
+   Write-Host "subjectAltName=DNS:$i,IP:$nodeIp" | Out-File -Encoding "UTF8" "$i.conf"
 
    # Sign the node certificate with the private key of the rootCA
    Write-Host "Signing certificate with Root CA certificate"
