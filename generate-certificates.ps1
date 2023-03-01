@@ -3,8 +3,9 @@
 
 #
 # Keytool and OpenSSL executable paths
+# I recommend to use the keytool that is provided with cassandra (cassandra/java/bin/keytool.exe)
+# Using a keytool from a different java version then the one included in cassandra may result in an 'Invalid Keystore format' error
 #
-
 $keytool = "path\to\keytool.exe"
 $openssl = "path\to\openssl.exe"
 
