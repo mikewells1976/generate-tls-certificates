@@ -9,7 +9,6 @@
 $keytool = "path\to\keytool.exe"
 $openssl = "path\to\openssl.exe"
 
-
 # Cleaning up the working directory
 $Clean = Read-Host "Do you want to remove previously generated certificates/truststores from the current directory? [Default=y, Option y|n]"
 if($Clean -ine "n"){
@@ -21,28 +20,35 @@ if($Clean -ine "n"){
     Remove-Item "*.jks"
     Remove-Item "*.conf"
     Remove-Item "*.srl"
+	Remove-Item "*.p12"
 }
 
+Write-Host "Starting Cassandra/Elastic/OpenSearch TLS encryption configuration..."
 
+$Database = Read-Host "Which database are you generating certificates for? [Default: Cassandra, Options: Cassandra|Elastic|OpenSearch]"
+if($Database -eq ""){
+    $Database = "Cassandra"
+}
+# check if Database is one of the options
+if($Database -notin @("Cassandra","Elastic","OpenSearch")){
+    Write-Host -ForegroundColor red "Invalid input: Database should be either Cassandra, Elastic or OpenSearch"
+    exit 5
+}
 
-
-Write-Host "Starting Cassandra TLS encryption configuration..."
-
-$ClusterName = Read-Host "Please enter the name of your Cassandra cluster: [Default: DMS]"
+$ClusterName = Read-Host "Please enter the name of your cluster: [Default: DMS]"
 if($ClusterName -eq ""){
     $ClusterName = "DMS"
 }
 # Check for non ascii characters, this can cause trouble for internode encryption
 if($ClusterName -cmatch "[^\x00-\x7F]"){
     Write-Host -ForegroundColor yellow "Warning: Your clustername contains non ascii characters. This may prevent your nodes from starting up if you have internode encryption turned on."
-    Write-Host -ForegroundColor yellow "Do you want to proceed? (May cause your Cassandra cluster to fail to start) [Default: n, Options y|n]"
+    Write-Host -ForegroundColor yellow "Do you want to proceed? (May cause your cluster to fail to start) [Default: n, Options y|n]"
     $Proceed = Read-Host
     if($Proceed -ine "y"){
         Write-Host "Quiting..."
         Exit 1
     }
 }
-
 
 $Validity = Read-Host "How long (days) should the certificates remain valid? [Default: 365 days, Min: 30, Max: 3650]"
 if($Validity -eq ""){
@@ -71,8 +77,7 @@ if($Keysize -notin @("1024","2048","4096","8192")){
     exit 4
 }
 
-
-$HostNames = Read-Host "Please enter the hostnames (FQDN) of every Cassandra node (space separated)"
+$HostNames = Read-Host "Please enter the hostnames (FQDN) of every node (space separated)"
 $HostNames = $HostNames -split " "
 
 $GeneratePassword = Read-Host "Do you want me to automatically generate a secure certificate password (instead of manually entering one)? [Default: y, Options: y|n]"
@@ -107,7 +112,7 @@ default_bits        = $KeySize
 
 [ req_distinguished_name ]
 C     = BE
-O     = Cassandra
+O     = $Database
 CN    = rootCA
 OU    = $ClusterName" | Out-File -Encoding "UTF8" rootCA.conf
 
@@ -124,13 +129,13 @@ foreach($i in $HostNames){
    & "$keytool" "-keystore" "$i-node-keystore.jks" "-alias" "rootCA" "-importcert" "-file" "rootCA.crt" "-keypass" "$Password" "-storepass" "$Password" "-noprompt"
 
    Write-Host "Generating new key pair for node: $i"
-   & "$keytool" "-genkeypair" "-keyalg" "RSA" "-alias" "$i" "-keystore" "$i-node-keystore.jks" "-storepass" "$Password" "-keypass" "$Password" "-validity" "$Validity" "-keysize" "$keySize" "-dname" "CN=$i, OU=$clusterName, O=Cassandra, C=BE" "-ext" "san=ip:$nodeIp"
+   & "$keytool" "-genkeypair" "-keyalg" "RSA" "-alias" "$i" "-keystore" "$i-node-keystore.jks" "-storepass" "$Password" "-keypass" "$Password" "-validity" "$Validity" "-keysize" "$keySize" "-dname" "CN=$i, OU=$clusterName, O=$Database, C=BE" "-ext" "san=ip:$nodeIp"
 
    Write-Host "Creating signing request"
-   & "$keytool" "-keystore" "$i-node-keystore.jks" "-alias" "$i" "-certreq" "-file" "$i.csr" "-keypass" "$Password" "-storepass" "$Password"
+   & "$keytool" "-keystore" "$i-node-keystore.jks" "-alias" "$i" "-certreq" "-file" "$i.csr" "-keypass" "$Password" "-storepass" "$Password" 
 
    # Add both hostname and IP as subject alternative name, write this configuration to a temp file
-   "subjectAltName=DNS:$i,IP:$NodeIp" | Out-File -Encoding "UTF8" "$i.conf"
+   "subjectAltName=DNS:$i,IP:$NodeIP" | Out-File -Encoding "UTF8" "${i}.conf"
 
    # Sign the node certificate with the private key of the rootCA
    Write-Host "Signing certificate with Root CA certificate"
@@ -151,7 +156,11 @@ foreach($i in $HostNames){
    # Debugging: Create keystore with public cert (mostly for CQL clients DevCenter)
    # Write-Host "Creating public truststore for clients"
    # & "$keytool" "-keystore" "$i-public-truststore.jks" "-alias" "$i" "-importcert" "-file" "$i-public-key.cer" "-keypass" "$Password" "-storepass" "$Password" "-noprompt"
-
+   
+   # Convert to PKCS#12, usable for ElasticSearch/OpenSearch
+   Write-Host "Creating PKCS#12 from JKS for $i"
+   & "$keytool" "-importkeystore" "-srckeystore" "$i-node-keystore.jks" "-destkeystore" "$i-node-keystore.p12" "-srcstoretype" "JKS" "-deststoretype" "PKCS12" "-srcstorepass" "$Password" "-deststorepass" "$Password"
+   
    Write-Host "Finished for $i"
 }
 
@@ -173,11 +182,11 @@ if($HostNames.Length -ge 2){
 }
 
 Write-Host 
-Write-Host -ForegroundColor Green "Copy the following certificates to every Cassandra client:"
+Write-Host -ForegroundColor Green "Copy the following certificates to every client:"
 Get-ChildItem -File "*rootCA.crt" | foreach-object { Write-Host "> $_"}
 
 Write-Host
-Write-Host -ForeGroundColor Green "Copy the following keystores to the matching Cassandra node:"
+Write-Host -ForeGroundColor Green "Copy the following keystores to the matching node:"
 Get-ChildItem -File "*-node-keystore.jks" | foreach-object { Write-Host "> $_"}
 
 Write-Host
@@ -185,5 +194,3 @@ Write-Host -ForeGroundColor Green "Keep the following files PRIVATE:"
 Get-ChildItem -File "rootCA.key" | foreach-object { Write-Host "> $_"}
 
 Write-Host
-
-
