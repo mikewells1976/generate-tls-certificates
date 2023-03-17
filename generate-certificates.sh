@@ -12,39 +12,83 @@ YELLOW="\033[1;33m"
 RED="\033[31m"
 NC="\033[0m"
 
-echo 'Starting Cassandra TLS encryption configuration...'
+read -p 'Do you want to clean up the files generated during a previous execution? [Default: y, Options y|n] ' delete
+delete=${delete:-y}
+if [[ $delete == "y" ]]; then
+   # Cleanup previous runs
+   echo 'Removing files from previous executions'
+   find . -type f -iname \*.jks -delete
+   find . -type f -iname \*.conf -delete
+   find . -type f -iname \*.key -delete
+   find . -type f -iname \*.crt -delete
+   find . -type f -iname \*.crt_signed -delete
+   find . -type f -iname \*.crs -delete
+   find . -type f -iname \*.cer -delete
+   find . -type f -iname \*.crl -delete
+   find . -type f -iname \*.p12 -delete
+fi
 
-read -p 'Please enter the name of your Cassandra cluster: [Default: DMS] ' clusterName
+echo 'Starting Cassandra/Elastic/OpenSearch TLS encryption configuration...'
 
+# Asking for database type and verify
+read -p 'Which database are you generating certificates for? [Default: Cassandra, Options: Cassandra|Elastic|OpenSearch] ' database
+database=${database:-Cassandra}
+if [[ "${database,,}" != "cassandra" && "${database,,}" != "elastic" && "${database,,}" != "opensearch" ]]; then
+   echo -e "${RED}Invalid input:${NC} database type should be Cassandra, Elastic or OpenSearch"
+   exit 2
+fi
+
+# Asking for clustername and verify
+read -p 'Please enter the name of your cluster: [Default: DMS] ' clusterName
+clusterName=${clusterName:-DMS}
 # Check if the provided clustername contains non-ASCII/special characters
 if [[ $(grep -P "[\x80-\xFF]" <<< $clusterName) ]]; then
-   # A non ascii character was found
    echo -e "${RED}Warning:${NC} Your clustername contains non ascii characters. This may prevent your nodes from starting up if you have internode encryption turned on."
-   read -p "Do you want to proceed? (May cause your Cassandra cluster to fail to start) [Default: n, Options y|n] " proceed
+   read -p "Do you want to proceed? (May cause your cluster to fail to start) [Default: n, Options y|n] " proceed
    proceed=${proceed:n}
    if [[ $proceed != "y" ]]; then
       echo "Quiting..."
-      exit 2
+      exit 3
    fi
 fi
 
+# Asking for Certificate validity and verify
 read -p 'How long (days) should the certificates remain valid? [Default: 365 days, Min: 30, Max: 3650]? ' validity
-read -p 'How long (bit) should the certificate key size be? [Default: 2048 bit, Options: 1024|2048|4096|8192]? ' keySize
-
-echo 'Please enter the hostnames (FQDN) of every Cassandra node (space separated): '
-read -a hostNames
-
-read -p 'Do you want me to resolve the hostnames automatically instead of manually entering the IP addresses for every node? [y|n] ' resolveHostName
-read -p "Do you want me to automatically generate a secure certificate password (instead of manually entering one)? [y|n] " generatePwd
-
-# Set default values
 validity=${validity:-365}
-clusterName=${clusterName:-DMS}
-keySize=${keySize:-2048}
+# Verify validity is integer and >= 30 days and <= 3650 days
+re='^[0-9]+$'
 
+if ! [[ $validity =~ $re  ]]; then
+   echo -e "${RED}Invalid input:${NC} Certificate validity should be numeric (days)"
+   exit 4
+fi
+if [[ $validity -le 29 || $validity -ge 3651 ]]; then
+   echo -e "${RED}Invalid input:${NC} Certificate validity should be between 30 and 3650 days"
+   exit 5
+fi
+
+read -p 'How long (bit) should the certificate key size be? [Default: 4096 bit, Options: 1024|2048|4096|8192]? ' keySize
+keySize=${keySize:-4096}
+# Verify keySize is valid (1024, 2048, 4096, 8192)
+if [[ $keySize != 1024 && $keySize != 2048 && $keySize != 4096 && $keySize != 8192 ]]; then
+   echo -e "${RED}Invalid input:${NC} Key size should be of size 1024, 2048, 4096 or 8192 bit"
+   exit 6
+fi
+
+# Getting hostnames of cluster
+echo 'Please enter the hostnames (FQDN) of every node (space separated): '
+read -a hostNames
+if [[ "${#hostNames[@]}" == 0 ]]; then
+   echo -e "${RED}Invalid input:${NC} No hostnames were provided, please provide at least one hostname"
+   exit 7
+fi
+
+read -p 'Do you want me to try to resolve the hostnames automatically instead of manually entering the IP addresses for every node? [Default: y, Options: y|n] ' resolveHostName
+resolveHostName=${resolveHostName:-y}
+
+read -p "Do you want me to automatically generate a secure certificate password (instead of manually entering one)? [Default: y, Options: y|n] " generatePwd
+generatePwd=${generatePwd:-y}
 pwd=''
-
-
 if [[ $generatePwd == "y" ]]; then
    echo 'Generating secure password for keystores'
    pwd=$(openssl rand -hex 20)
@@ -59,57 +103,26 @@ else
    # Verify passwords match
    if [[ "$pwd" != "$pwdConfirmation" ]]; then
       echo -e "${RED}Invalid input:${NC} Passwords did not match"
-      exit 3
+      exit 8
    fi
 
    pwdLength=${#pwd}
 
    if [[ pwdLength -le 10 ]]; then
       echo -e "${RED}Invalid input:${NC} Minimum password length is 10 characters"
-      exit 4
+      exit 9
    fi
-fi
-
-# Verify validity is >= 30 days and <= 3650 days
-re='^[0-9]+$'
-
-if ! [[ $validity =~ $re  ]]; then
-   echo -e "${RED}Invalid input:${NC} Certificate validity should be numeric (days)"
-   exit 5
-fi
-
-if [[ $validity -le 29 || $validity -ge 3651 ]]; then
-   echo -e "${RED}Invalid input:${NC} Certificate validity should be between 30 and 3650 days"
-   exit 6
-fi
-
-#TODO: verify hostnames aren't empty
-
-
-# Verify keySize is valid (1024, 2048, 4096, 8192)
-if [[ $keySize != 1024 && $keySize != 2048 && $keySize != 4096 && $keySize != 8192 ]]; then
-   echo -e "${RED}Invalid input:${NC} Key size should be of size 1024, 2048, 4096 or 8192 bit"
-   exit 6
 fi
 
 # Log what we learned
 echo '---- Generating Certificates ----'
+echo Database type: $database
 echo Cluster name: $clusterName
-echo Nodes: ${hostNames[@]}
+echo Nodes: "${hostNames[@]}"
 echo Validity: $validity
 echo Key size: $keySize
 echo Resolve hostnames? $resolveHostName
 
-# Cleanup previous runs
-echo 'Removing files from previous executions'
-find . -type f -iname \*.jks -delete
-find . -type f -iname \*.conf -delete
-find . -type f -iname \*.key -delete
-find . -type f -iname \*.crt -delete
-find . -type f -iname \*.crt_signed -delete
-find . -type f -iname \*.crs -delete
-find . -type f -iname \*.cer -delete
-find . -type f -iname \*.crl -delete
 
 echo 'Generating new Root CA certificate'
 
@@ -122,7 +135,7 @@ default_bits        = $keySize
 
 [req_distinguished_name]
 C     = BE
-O     = Cassandra
+O     = $database
 CN    = rootCA
 OU    = $clusterName" > generate_rootCA.conf
 
@@ -155,24 +168,24 @@ do
 
    if [[ $nodeIp == '' ]]; then
       read -p "Please enter the IP address for node $i: " nodeIp
-   fi
+   fi 
 
    # Importing the public Root CA certificate in node keystore
    echo "Importing Root CA certificate in node keystore"
    keytool -keystore $i-node-keystore.jks -alias rootCA -importcert -file rootCA.crt -keypass $pwd -storepass $pwd -noprompt
 
    echo "Generating new key pair for node: $i"
-   keytool -genkeypair -keyalg RSA -alias $i -keystore $i-node-keystore.jks -storepass $pwd -keypass $pwd -validity $validity -keysize $keySize -dname "CN=$i, OU=$clusterName, O=Cassandra, C=BE" -ext "san=ip:$nodeIp"
+   keytool -genkeypair -keyalg RSA -alias $i -keystore $i-node-keystore.jks -storepass $pwd -keypass $pwd -validity $validity -keysize $keySize -dname "CN=$i, OU=$clusterName, O=$database, C=BE" -ext "san=ip:$nodeIp"
 
    echo "Creating signing request"
    keytool -keystore $i-node-keystore.jks -alias $i -certreq -file $i.csr -keypass $pwd -storepass $pwd
 
    # Add both hostname and IP as subject alternative name
-   echo "subjectAltName=DNS:$i,IP:$nodeIp" > $i_san.conf
+   echo "subjectAltName=DNS:$i,IP:$nodeIp" > "${i}.conf"
 
    # Sign the node certificate with the private key of the rootCA
    echo "Signing certificate with Root CA certificate"
-   openssl x509 -req -CA rootCA.crt -CAkey rootCA.key -in $i.csr -out $i.crt_signed -days $validity -CAcreateserial -passin pass:$pwd -extfile $i_san.conf
+   openssl x509 -req -CA rootCA.crt -CAkey rootCA.key -in $i.csr -out $i.crt_signed -days $validity -CAcreateserial -passin pass:$pwd -extfile "${i}.conf"
 
    # Import the signed certificate in the node key store
    echo "Importing signed certificate for $i in node keystore"
@@ -182,13 +195,17 @@ do
    echo "Exporting public key for $i"
    keytool -exportcert -alias $i -keystore $i-node-keystore.jks -file $i-public-key.cer -storepass $pwd
 
+   # Convert to PKCS#12, usable for ElasticSearch/OpenSearch
+   keytool -importkeystore -srckeystore $i-node-keystore.jks -destkeystore $i-node-keystore.p12 -srcstoretype JKS -deststoretype PKCS12 -srcstorepass $pwd -deststorepass $pwd
+   
    # Log the certificates for this node (for debugging purposes)
    #echo "Certificates in node-keystore for $i:"
    #keytool -list -keystore $i-node-keystore.jks -storepass $pwd
 
+   # Debugging
    # Create keystore with public cert (mostly for CQL clients like DevCenter)
-   echo "Creating public truststore for clients"
-   keytool -keystore $i-public-truststore.jks -alias $i -importcert -file $i-public-key.cer -keypass $pwd -storepass $pwd -noprompt
+   # echo "Creating public truststore for clients"
+   # keytool -keystore $i-public-truststore.jks -alias $i -importcert -file $i-public-key.cer -keypass $pwd -storepass $pwd -noprompt
 
    echo "Finished for $i"
    echo
@@ -208,41 +225,43 @@ if [[ nodeCount -ge 2 ]]; then
          fi
 
          echo "Importing cert from $j in $i node keystore"
-         keytool -keystore $i-node-keystore.jks -alias $j -importcert -file $j-public-key.cer -keypass $pwd -storepass $pwd -noprompt
+         keytool -keystore $i-node-keystore.p12 -alias $j -importcert -file $j-public-key.cer -keypass $pwd -storepass $pwd -noprompt
       done
-      echo
-      echo "Certificates in node keystore from $i"
-      keytool -list -keystore $i-node-keystore.jks -storepass $pwd
-      echo
+      # Debugging
+      # echo
+      # echo "Certificates in node keystore from $i"
+      # keytool -list -keystore $i-node-keystore.p12 -storepass $pwd
+      # echo
    done
 fi
+
+# cleaning up the unused files in the directory
+find . -type f -iname \*.crt_signed -delete
+find . -type f -iname \*.csr -delete
+find . -type f -iname \*.conf -delete
+find . -type f -iname \*.srl -delete
+# remove line below when debugging with devcenter
+find . -type f -iname \*.jks -delete
 
 echo "---- Finished updating certificates ----"
 echo
 echo
 
-# TODO: possible the root CA is enough!
-echo -e "Copy the following certificates ${YELLOW}to every Cassandra client${NC}:"
+echo -e "Copy the following certificates ${YELLOW}to every client${NC}:"
 ls -d *rootCA.crt
 
 echo
-echo -e "Copy the following keystores to the ${YELLOW}matching Cassandra node${NC}:"
-ls -d *-node-keystore.jks
+echo -e "Copy the following keystores to the ${YELLOW}matching node${NC}:"
+ls -d *-node-keystore.p12
 
-echo
-echo -e "Use the following trust stores to connect using ${YELLOW}DevCenter${NC}:"
-ls -d *-public-truststore.jks
+# Debugging
+# echo
+# echo -e "Use the following trust stores to connect using ${YELLOW}DevCenter${NC}:"
+# ls -d *-public-truststore.jks
 
 echo
 echo -e "Keep the following files ${YELLOW}PRIVATE${NC}:"
 ls -d rootCA*
-
-echo
-echo
-echo "Deleting unused files..."
-find . -type f -iname \*.crt_signed -delete
-find . -type f -iname \*.csr -delete
-find . -type f -iname \*.conf -delete
 
 if [[ $generatePwd == "y" ]]; then
    echo -e "The certificate ${YELLOW}password${NC} is: $pwd"
