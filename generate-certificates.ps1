@@ -3,13 +3,29 @@
 
 #
 # Keytool and OpenSSL executable paths
-# I recommend to use the keytool that is provided with cassandra (cassandra/java/bin/keytool.exe)
-# Using a keytool from a different java version then the one included in cassandra may result in an 'Invalid Keystore format' error
+# You can configure them in the script or at run time
+#
+# I recommend to use the keytool that is provided with cassandra/elastic/opensearch (e.g. cassandra/java/bin/keytool.exe)
+# Using a keytool from a different java version then the one included may result in an 'Invalid Keystore format' error
 #
 $keytool = "path\to\keytool.exe"
-$openssl = "path\to\openssl.exe"
+while(-not (Test-Path $keytool -PathType Leaf)){
+    Write-Host "No valid keytool.exe is configured."
+    Write-Host "It is recommended to use the keytool executable provided with cassandra/elastic/opensearch."
+    Write-Host "Using a keytool executable from a different java version the the one included with cassandra/elastic/opensearch may result in an 'Invalid Keystore format error'"
+    $keytool = Read-Host "Please enter the absolute path to the keytool executable: "
+}
 
-# Cleaning up the working directory
+$openssl = "path\to\openssl.exe"
+while(-not (Test-Path $openssl -PathType Leaf)){
+    Write-Host "No valid openssl.exe is configured."
+    $openssl = Read-Host "Please enter the absolute path to the openssl executable: "
+}
+Write-Host
+
+#
+# Cleaning up the working directory, if wanted
+#
 $Clean = Read-Host "Do you want to remove previously generated certificates/truststores from the current directory? [Default=y, Option y|n]"
 if($Clean -ine "n"){
     Remove-Item "*.crt_signed"
@@ -23,18 +39,22 @@ if($Clean -ine "n"){
 	Remove-Item "*.p12"
 }
 
+# 
+# Configuration phase
+#
 Write-Host "Starting Cassandra/Elastic/OpenSearch TLS encryption configuration..."
 
+# Asking database type and verify
 $Database = Read-Host "Which database are you generating certificates for? [Default: Cassandra, Options: Cassandra|Elastic|OpenSearch]"
 if($Database -eq ""){
     $Database = "Cassandra"
 }
-# check if Database is one of the options
 if($Database -notin @("Cassandra","Elastic","OpenSearch")){
     Write-Host -ForegroundColor red "Invalid input: Database should be either Cassandra, Elastic or OpenSearch"
-    exit 5
+    exit 1
 }
 
+# Asking for clustername and verify
 $ClusterName = Read-Host "Please enter the name of your cluster: [Default: DMS]"
 if($ClusterName -eq ""){
     $ClusterName = "DMS"
@@ -46,10 +66,11 @@ if($ClusterName -cmatch "[^\x00-\x7F]"){
     $Proceed = Read-Host
     if($Proceed -ine "y"){
         Write-Host "Quiting..."
-        Exit 1
+        Exit 2
     }
 }
 
+# Asking for validity and verify
 $Validity = Read-Host "How long (days) should the certificates remain valid? [Default: 365 days, Min: 30, Max: 3650]"
 if($Validity -eq ""){
     $Validity = "365"
@@ -58,27 +79,34 @@ if($Validity -eq ""){
 $Validity = $Validity -as [int]
 if($Validity -eq $null){
     Write-Host -ForegroundColor red "Invalid input: Certificate validity should be an integer (days)"
-    Exit 2
+    Exit 3
 }
 # check if between min and max
 if($Validity -lt 30 -or $Validity -gt 3650){
     Write-Host -ForegroundColor red "Invalid input: Certificate validity should be between 30 and 3650 days"
-    Exit 3
+    Exit 4
 }
 
 
-$Keysize = Read-Host "How long (bit) should the certificate key size be? [Default: 2048 bit, Options: 1024|2048|4096|8192]"
+$Keysize = Read-Host "How long (bit) should the certificate key size be? [Default: 4096 bit, Options: 1024|2048|4096|8192]"
 if($Keysize -eq ""){
-    $Keysize = "2048"
+    $Keysize = "4096"
 }
 # check if keysize is one of the options
 if($Keysize -notin @("1024","2048","4096","8192")){
     Write-Host -ForegroundColor red "Invalid input: Key size should be of size 1024, 2048, 4096 or 8192 bit"
-    exit 4
+    exit 5
 }
 
+# Asking for hostnames
 $HostNames = Read-Host "Please enter the hostnames (FQDN) of every node (space separated)"
 $HostNames = $HostNames -split " "
+if($HostNames.Length -eq 0){
+    Write-Host -ForegroundColor red "Invalid input: No hostnames were provided, please provide at least one hostname."
+    exit 6
+}
+# Ask if hostnames need to be resolved
+$ResolveHostName = Read-Host "Do you want me to try to resolve the hostnames automatically instead of manually entering the IP addresses for every node? [Default: y, Options: y|n]"
 
 $GeneratePassword = Read-Host "Do you want me to automatically generate a secure certificate password (instead of manually entering one)? [Default: y, Options: y|n]"
 if($GeneratePassword -ine "n"){
@@ -97,12 +125,16 @@ else {
 
 # Log the configuration details
 Write-Host "---- Generating Certificates ----"
+Write-Host "Database type: $Database"
 Write-Host "Cluster name: $ClusterNames"
 Write-Host "Host names: $HostNames"
 Write-Host "Validity: $Validity"
 Write-Host "Keysize: $Keysize"
+Write-Host "Resolve hostnames? $ResolveHostName"
 
-# Start Generating root certificate
+#
+# Root certificate generation
+#
 Write-Host "Generating the root certificate"
 "[ req ]
 distinguished_name  = req_distinguished_name
@@ -119,10 +151,32 @@ OU    = $ClusterName" | Out-File -Encoding "UTF8" rootCA.conf
 # Create a new Root CA certificate and store the private key in rootCA.key, public key in rootCA.crt
 & "$openssl" "req" "-config" "rootCA.conf" "-new" "-x509" "-nodes" "-keyout" "rootCA.key" "-out" "rootCA.crt" "-days" "$Validity"
 
-# Create a certificate for every node
+#
+# Node certificates generation
+#
 foreach($i in $HostNames){
     Write-Host "Generating certificate for node: $i"
-    $NodeIP = Read-Host "Please enter the IP address for node $i"
+    $NodeIP = ""
+    # check if we need to resolve the hostname
+    if($ResolveHostName -ine "n"){
+        Write-Host "Resolving $i to IP..."
+        $ResIp = (Resolve-DnsName $i).IpAddress | Out-String
+        $ResIp = $ResIp.Trim()
+        Write-Host -ForegroundColor Green $ResIp
+        if($ResIp -match '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$'){
+            Write-Host "Resolved $i to IP: $ResIp"
+            $NodeIP = $ResIp
+        }
+        else {
+            Write-Host "Failed to resolve $i to a valid IP."
+        }
+    }
+
+    # check if hostname was resolved
+    if($NodeIP -eq ""){
+        # Hostname was not resolved, ask for IP
+        $NodeIP = Read-Host "Please enter the IP address for node $i"
+    }
 
    # Importing the public Root CA certificate in node keystore
    Write-Host "Importing Root CA certificate in node keystore"
@@ -173,13 +227,23 @@ if($HostNames.Length -ge 2){
                 continue
             }
 
-            & "$keytool" "-keystore" "$i-node-keystore.jks" "-alias" "$j" "-importcert" "-file" "$j-public-key.cer" "-keypass" "$Password" "-storepass" "$Password" "-noprompt"
+            & "$keytool" "-keystore" "$i-node-keystore.p12" "-alias" "$j" "-importcert" "-file" "$j-public-key.cer" "-keypass" "$Password" "-storepass" "$Password" "-noprompt"
         }
 
-        # For debugging
-        # & "$keytool" "-list" "-keystore" "$i-node-keystore.jks" "-storepass" "$Password"
+        # Debugging
+        # & "$keytool" "-list" "-keystore" "$i-node-keystore.p12" "-storepass" "$Password"
     }
 }
+
+#
+# Finished, now clean up and write final instrucitons
+#
+Remove-Item "*.crt_signed"
+Remove-Item "*.csr"
+Remove-Item "*.conf"
+Remove-Item "*.srl"
+# Remove line below for debugging with devcenter
+Remove-Item "*.jks"
 
 Write-Host 
 Write-Host -ForegroundColor Green "Copy the following certificates to every client:"
@@ -193,4 +257,11 @@ Write-Host
 Write-Host -ForeGroundColor Green "Keep the following files PRIVATE:"
 Get-ChildItem -File "rootCA.key" | foreach-object { Write-Host "> $_"}
 
+if($GeneratePassword -ine "n"){
+    Write-Host
+    Write-Host -ForeGroundColor Green "The generated password is: $Password"
+}
+
 Write-Host
+Write-Host "Script complete"
+exit 0
