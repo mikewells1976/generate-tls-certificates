@@ -183,7 +183,7 @@ foreach($i in $HostNames){
    & "$keytool" "-keystore" "$i-node-keystore.jks" "-alias" "rootCA" "-importcert" "-file" "rootCA.crt" "-keypass" "$Password" "-storepass" "$Password" "-noprompt"
 
    Write-Host "Generating new key pair for node: $i"
-   & "$keytool" "-genkeypair" "-keyalg" "RSA" "-alias" "$i" "-keystore" "$i-node-keystore.jks" "-storepass" "$Password" "-keypass" "$Password" "-validity" "$Validity" "-keysize" "$keySize" "-dname" "CN=$i, OU=$clusterName, O=$Database, C=BE" "-ext" "san=ip:$nodeIp"
+   & "$keytool" "-genkeypair" "-keyalg" "RSA" "-alias" "$i" "-keystore" "$i-node-keystore.jks" "-storepass" "$Password" "-keypass" "$Password" "-validity" "$Validity" "-keysize" "$keySize" "-dname" "CN=$i, OU=$clusterName, O=$Database, C=BE" "-ext" "san=ip:$nodeIp,dns:$i"
 
    Write-Host "Creating signing request"
    & "$keytool" "-keystore" "$i-node-keystore.jks" "-alias" "$i" "-certreq" "-file" "$i.csr" "-keypass" "$Password" "-storepass" "$Password" 
