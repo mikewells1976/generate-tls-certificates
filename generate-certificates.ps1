@@ -1,5 +1,5 @@
 # We have to run as administrator
-#-Requires -RunAsAdministrator
+#Requires -RunAsAdministrator
 
 #
 # Keytool and OpenSSL executable paths
@@ -8,18 +8,18 @@
 # I recommend to use the keytool that is provided with cassandra/elastic/opensearch (e.g. cassandra/java/bin/keytool.exe)
 # Using a keytool from a different java version then the one included may result in an 'Invalid Keystore format' error
 #
-$keytool = "path\to\keytool.exe"
+$keytool = "c:\absolute\path\to\keytool.exe"
 while(-not (Test-Path $keytool -PathType Leaf)){
     Write-Host "No valid keytool.exe is configured."
     Write-Host "It is recommended to use the keytool executable provided with cassandra/elastic/opensearch."
     Write-Host "Using a keytool executable from a different java version the the one included with cassandra/elastic/opensearch may result in an 'Invalid Keystore format error'"
-    $keytool = Read-Host "Please enter the absolute path to the keytool executable: "
+    $keytool = Read-Host "Please enter the absolute path to the keytool executable"
 }
 
-$openssl = "path\to\openssl.exe"
+$openssl = "c:\absolute\path\to\openssl.exe"
 while(-not (Test-Path $openssl -PathType Leaf)){
     Write-Host "No valid openssl.exe is configured."
-    $openssl = Read-Host "Please enter the absolute path to the openssl executable: "
+    $openssl = Read-Host "Please enter the absolute path to the openssl executable"
 }
 Write-Host
 
@@ -160,15 +160,20 @@ foreach($i in $HostNames){
     # check if we need to resolve the hostname
     if($ResolveHostName -ine "n"){
         Write-Host "Resolving $i to IP..."
-        $ResIp = (Resolve-DnsName $i).IpAddress | Out-String
-        $ResIp = $ResIp.Trim()
-        Write-Host -ForegroundColor Green $ResIp
-        if($ResIp -match '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$'){
-            Write-Host "Resolved $i to IP: $ResIp"
-            $NodeIP = $ResIp
+        try {
+            $ResIp = Resolve-DnsName -Name $i -ErrorAction Stop |  Select -ExpandProperty "IpAddress" | Out-String
+            $ResIp = $ResIp.Trim()
+            if($ResIp -match '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$'){
+                Write-Host -ForeGroundColor Green "Resolved $i to IP: $ResIp"
+                $NodeIP = $ResIp
+            }
+            else {
+                Write-Host "Could not resolve the hostname to a single IP. I found the following IPs:"
+                Write-Host -ForegroundColor Green $ResIp
+            }
         }
-        else {
-            Write-Host "Failed to resolve $i to a valid IP."
+        catch {
+            Write-Host -ForeGroundColor Yellow "Failed to resolve $i to a valid IP."
         }
     }
 
