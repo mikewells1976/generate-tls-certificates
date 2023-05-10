@@ -130,14 +130,14 @@ echo 'Generating new Root CA certificate'
 echo "[req]
 distinguished_name  = req_distinguished_name
 prompt              = no
-output_password     = $pwd
+output_password     = \"$pwd\"
 default_bits        = $keySize
 
 [req_distinguished_name]
 C     = BE
 O     = $database
 CN    = rootCA
-OU    = $clusterName" > generate_rootCA.conf
+OU    = \"$clusterName\"" > generate_rootCA.conf
 
 # Create a new Root CA certificate and store the private key in rootCA.key, public key in rootCA.crt
 openssl req -config generate_rootCA.conf -new -x509 -nodes -keyout rootCA.key -out rootCA.crt -days $validity

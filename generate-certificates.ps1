@@ -139,14 +139,14 @@ Write-Host "Generating the root certificate"
 "[ req ]
 distinguished_name  = req_distinguished_name
 prompt              = no
-output_password     = $Password
+output_password     = `"$Password`"
 default_bits        = $KeySize
 
 [ req_distinguished_name ]
 C     = BE
 O     = $Database
 CN    = rootCA
-OU    = $ClusterName" | Out-File -Encoding "UTF8" rootCA.conf
+OU    = `"$ClusterName`"" | Out-File -Encoding "UTF8" rootCA.conf
 
 # Create a new Root CA certificate and store the private key in rootCA.key, public key in rootCA.crt
 & "$openssl" "req" "-config" "rootCA.conf" "-new" "-x509" "-nodes" "-keyout" "rootCA.key" "-out" "rootCA.crt" "-days" "$Validity"
