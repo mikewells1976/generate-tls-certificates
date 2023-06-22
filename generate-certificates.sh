@@ -41,7 +41,7 @@ fi
 # Setting the PATH variable for OpenSearch
 if [[ "${database,,}" == "opensearch" ]]; then
    PATH+=:/usr/share/opensearch/jdk/bin/
-   echo "When choosing OpenSearch, PATH is modified to be able to sign certificates."
+   echo "When choosing OpenSearch, PATH is temporarly modified to include java keytool"
    echo "Contents of the PATH variable: $PATH"
 fi
 
