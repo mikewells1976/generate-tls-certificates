@@ -38,6 +38,13 @@ if [[ "${database,,}" != "cassandra" && "${database,,}" != "elastic" && "${datab
    exit 2
 fi
 
+# Setting the PATH variable for OpenSearch
+if [[ "${database,,}" == "opensearch" ]]; then
+   PATH+=:/usr/share/opensearch/jdk/bin/
+   echo "When choosing OpenSearch, PATH is temporarly modified to include java keytool"
+   echo "Contents of the PATH variable: $PATH"
+fi
+
 # Asking for clustername and verify
 read -p 'Please enter the name of your cluster: [Default: DMS] ' clusterName
 clusterName=${clusterName:-DMS}
