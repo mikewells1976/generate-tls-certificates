@@ -163,7 +163,7 @@ foreach($i in $HostNames){
         try {
             $ResIp = Resolve-DnsName -Name $i -ErrorAction Stop |  Select -ExpandProperty "IpAddress" | Out-String
             $ResIp = $ResIp.Trim()
-            if($ResIp -match '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$'){
+            if( ($ResIp -match '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$') -and ($ResIp -ne '127.0.0.1') ){
                 Write-Host -ForeGroundColor Green "Resolved $i to IP: $ResIp"
                 $NodeIP = $ResIp
             }

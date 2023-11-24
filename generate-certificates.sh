@@ -158,7 +158,7 @@ do
       echo "Resolving $i to IP..."
       tempIp=$(dig $i +short)
 
-      if [[ $tempIp =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+      if [[ $tempIp =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]] && [[ $tempIp != "127.0.0.1" ]]; then
          echo "Resolved $i to IP: $tempIp"
          nodeIp=$tempIp
       else
