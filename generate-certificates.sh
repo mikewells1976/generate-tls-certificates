@@ -33,12 +33,15 @@ cleanup_files() {
 
 # Asking for database type and verify
 get_database_type() {
-  read -p 'Which database are you generating certificates for? [Default: Cassandra, Options: Cassandra|Elastic|OpenSearch] ' database
-  database=${database:-Cassandra}
-  if [[ "${database,,}" != "cassandra" && "${database,,}" != "elastic" && "${database,,}" != "opensearch" ]]; then
-    echo -e "${RED}Invalid input:${NC} database type should be Cassandra, Elastic, or OpenSearch"
-    exit 2
-  fi
+  while true; do
+    read -p 'Which database are you generating certificates for? [Default: Cassandra, Options: Cassandra|Elastic|OpenSearch] ' database
+    database=${database:-Cassandra}
+    if [[ "${database,,}" != "cassandra" && "${database,,}" != "elastic" && "${database,,}" != "opensearch" ]]; then
+      echo -e "${RED}Invalid input:${NC} database type should be Cassandra, Elastic, or OpenSearch"
+    else
+      break
+    fi
+  done
 }
 
 # Setting the PATH variable for OpenSearch
@@ -52,43 +55,50 @@ set_opensearch_path() {
 
 # Asking for cluster information and verify
 get_cluster_info() {
-  read -p 'Please enter the name of your cluster: [Default: DMS] ' clusterName
-  clusterName=${clusterName:-DMS}
-  if [[ $(grep -P "[\x80-\xFF]" <<< $clusterName) ]]; then
-    echo -e "${RED}Warning:${NC} Your clustername contains non-ASCII characters. This may prevent your nodes from starting up if you have internode encryption turned on."
-    read -p "Do you want to proceed? (May cause your cluster to fail to start) [Default: n, Options y|n] " proceed
-    proceed=${proceed:n}
-    if [[ $proceed != "y" ]]; then
-      echo "Quitting..."
-      exit 3
+  while true; do
+    read -p 'Please enter the name of your cluster: [Default: DMS] ' clusterName
+    clusterName=${clusterName:-DMS}
+    if [[ $(grep -P "[\x80-\xFF]" <<< $clusterName) ]]; then
+      echo -e "${RED}Warning:${NC} Your clustername contains non-ASCII characters. This may prevent your nodes from starting up if you have internode encryption turned on."
+      read -p "Do you want to proceed? (May cause your cluster to fail to start) [Default: n, Options y|n] " proceed
+      proceed=${proceed:n}
+      if [[ $proceed != "y" ]]; then
+        echo "Quitting..."
+      fi
+    else 
+      break
     fi
-  fi
+  done
 }
 
 # Asking for certificate validity and verify
 get_certificate_options() {
-  read -p 'How long (days) should the certificates remain valid? [Default: 365 days, Min: 30, Max: 3650]? ' validity
-  validity=${validity:-365}
-  re='^[0-9]+$'
-
-  if ! [[ $validity =~ $re  ]]; then
-    echo -e "${RED}Invalid input:${NC} Certificate validity should be numeric (days)"
-    exit 4
-  fi
-  if [[ $validity -le 29 || $validity -ge 3651 ]]; then
-    echo -e "${RED}Invalid input:${NC} Certificate validity should be between 30 and 3650 days"
-    exit 5
-  fi
+  while true; do
+    read -p 'How long (days) should the certificates remain valid? [Default: 365 days, Min: 30, Max: 3650]? ' validity
+    validity=${validity:-365}
+    re='^[0-9]+$'
+  
+    if ! [[ $validity =~ $re ]]; then
+      echo -e "${RED}Invalid input:${NC} Certificate validity should be numeric (days)"
+    elif [[ $validity -le 29 || $validity -ge 3651 ]]; then
+      echo -e "${RED}Invalid input:${NC} Certificate validity should be between 30 and 3650 days"
+    else
+      break
+    fi
+  done
 }
 
 # Asking for key size and verify
 get_key_size() {
-  read -p 'How long (bit) should the certificate key size be? [Default: 4096 bit, Options: 1024|2048|4096|8192]? ' keySize
-  keySize=${keySize:-4096}
-  if [[ $keySize != 1024 && $keySize != 2048 && $keySize != 4096 && $keySize != 8192 ]]; then
-    echo -e "${RED}Invalid input:${NC} Key size should be of size 1024, 2048, 4096, or 8192 bit"
-    exit 6
-  fi
+  while true; do
+    read -p 'How long (bit) should the certificate key size be? [Default: 4096 bit, Options: 1024|2048|4096|8192]? ' keySize
+    keySize=${keySize:-4096}
+    if [[ $keySize != 1024 && $keySize != 2048 && $keySize != 4096 && $keySize != 8192 ]]; then
+      echo -e "${RED}Invalid input:${NC} Key size should be of size 1024, 2048, 4096, or 8192 bit"
+    else
+      break
+    fi
+  done
 }
 
 # Getting hostnames of cluster
@@ -115,7 +125,7 @@ generate_password() {
   if [[ $generatePwd == "y" ]]; then
     echo 'Generating secure password for keystores'
     pwd=$(openssl rand -hex 20)
-    echo "Generated password is $pwd"
+    echo -e "${YELLOW}Generated password is $pwd"
   else
     read -s -p 'Please enter a password for the certificates and truststores: ' pwd
     echo
@@ -162,46 +172,58 @@ generate_root_certificate() {
   read -p 'Do you want to use an existing root certificate? [Default: y, Options y|n] ' useExisting
   useExisting=${useExisting:-y}
   if [[ $useExisting == "y" ]]; then
-	# Ask for rootCA.crt file
-	while true; do
-		read -p 'Please enter the absolute path to the rootCA.crt file:' rootCAcrtInput
-		if [ -e "$rootCAcrtInput" ] && [[ $rootCAcrtInput == *".crt"* ]]; then
-			rootCAcrt=$rootCAcrtInput
-			break  # Exit the loop if the condition is met
-		else
-			echo 'Invalid path. Please insert a valid path'
-		fi
-	done
-	
-	# Ask for rootCA.key file
-	while true; do
-		read -p 'Please enter the absolute path to the rootCA.key file:' rootCAkeyInput
-		if [ -e "$rootCAkeyInput" ] && [[ $rootCAkeyInput == *".key"* ]]; then
-			rootCAkey=$rootCAkeyInput
-			break  # Exit the loop if the condition is met
-		else
-			echo 'Invalid path. Please insert a valid path'
-		fi
-	done
+    # Ask for rootCA.crt file
+    while true; do
+      read -p 'Please enter the absolute path to the rootCA.crt file:' rootCAcrtInput
+      if [ -e "$rootCAcrtInput" ] && [[ $rootCAcrtInput == *".crt"* ]]; then
+        rootCAcrt=$rootCAcrtInput
+        break  # Exit the loop if the condition is met
+      else
+        echo 'Invalid path. Please insert a valid path'
+      fi
+    done
+    
+    # Ask for rootCA.key file
+    while true; do
+      read -p 'Please enter the absolute path to the rootCA.key file:' rootCAkeyInput
+      if [ -e "$rootCAkeyInput" ] && [[ $rootCAkeyInput == *".key"* ]]; then
+        rootCAkey=$rootCAkeyInput
+        break  # Exit the loop if the condition is met
+      else
+        echo 'Invalid path. Please insert a valid path'
+      fi
+    done
+
+      # Ask for rootCA.key password
+    while true; do
+      read -p 'Please enter the password to the rootCA.key file:' rootCAPwdInput
+      if [[ ! -z $rootCAPwdInput ]]; then
+        rootCAPassword=$rootCAPwdInput
+        break  # Exit the loop if the condition is met
+      else
+        echo 'Invalid password. Please insert a valid password'
+      fi
+    done
+  else
+    echo 'Generating new Root CA certificate'
+    echo "[req]
+    distinguished_name  = req_distinguished_name
+    prompt              = no
+    output_password     = \"$rootCAPassword\"
+    default_bits        = $keySize
+
+    [req_distinguished_name]
+    C     = BE
+    O     = $database
+    CN    = rootCA
+    OU    = \"$clusterName\"" > generate_rootCA.conf
+
+    openssl req -config generate_rootCA.conf -new -x509 -nodes -keyout $rootCAkey -out rootCA.crt -days $validity
+    generate_password
+    rootCAPassword=$pwd
+    echo "Creating Root CA truststore (JKS)"
+    keytool -keystore rootCA-truststore.jks -storetype JKS -importcert -file $rootCAcrt -keypass $rootCAPassword -storepass $rootCAPassword -alias rootCA -noprompt
   fi
- 
-  echo 'Generating new Root CA certificate'
-  echo "[req]
-  distinguished_name  = req_distinguished_name
-  prompt              = no
-  output_password     = \"$pwd\"
-  default_bits        = $keySize
-
-  [req_distinguished_name]
-  C     = BE
-  O     = $database
-  CN    = rootCA
-  OU    = \"$clusterName\"" > generate_rootCA.conf
-
-  openssl req -config generate_rootCA.conf -new -x509 -nodes -keyout $rootCAkey -out rootCA.crt -days $validity
-
-  echo "Creating Root CA truststore (JKS)"
-  keytool -keystore rootCA-truststore.jks -storetype JKS -importcert -file $rootCAcrt -keypass $pwd -storepass $pwd -alias rootCA -noprompt
 }
 
 # Generate certificates for every node
@@ -221,22 +243,21 @@ generate_node_certificates() {
         nodeIp=$tempIp
       else
         echo "Failed to resolve $i to a valid IP."
+        while true; do
+          read -p "Please enter the IP address for node $i: " ip_to_validate
+
+          if validate_ip "$ip_to_validate"; then
+            nodeIp=$ip_to_validate
+            break
+          else
+            echo "Invalid IP. Please try again."
+          fi
+        done
       fi
     fi
 
-	while true; do
-		read -p "Please enter the IP address for node $i: " ip_to_validate
-
-		if validate_ip "$ip_to_validate"; then
-			nodeIp=$ip_to_validate
-			break
-		else
-			echo "Invalid IP. Please try again."
-		fi
-	done
-
     echo "Importing Root CA certificate in node keystore"
-    keytool -keystore $i-node-keystore.jks -alias rootCA -importcert -file rootCA.crt -keypass $pwd -storepass $pwd -noprompt
+    keytool -keystore $i-node-keystore.jks -alias rootCA -importcert -file $rootCAcrt -keypass $pwd -storepass $pwd -noprompt
 
     echo "Generating new key pair for node: $i"
     keytool -genkeypair -keyalg RSA -alias $i -keystore $i-node-keystore.jks -storepass $pwd -keypass $pwd -validity $validity -keysize $keySize -dname "CN=$i, OU=$clusterName, O=$database, C=BE" -ext "san=ip:$nodeIp,dns:$i"
@@ -294,15 +315,15 @@ cleanup_unused_files() {
 
 # Display certificates information
 display_certificates_info() {
-  echo -e "Copy the following certificates ${YELLOW}to every client${NC}:"
+  echo "---- Finished updating certificates ----"
+  
+  echo -e "${YELLOW}Copy the following certificates to every client${NC}:"
   ls -d *rootCA.crt
 
-  echo -e "Copy the following keystores to the ${YELLOW}matching node${NC}:"
-  ls -d *-node-keystore.p12
+  echo -e "${YELLOW}Please make sure the $rootCAcrt is trusted on every client"
 
-  if [[ $generatePwd == "y" ]]; then
-    echo -e "The certificate ${YELLOW}password${NC} is: $pwd"
-  fi
+  echo -e "${YELLOW}Copy the following keystores to the matching node${NC}:"
+  ls -d *-node-keystore.p12
 
   echo 'Script completed'
   exit 0
@@ -319,13 +340,10 @@ main() {
   get_certificate_options
   get_key_size
   get_hostnames
-  generate_password
   generate_root_certificate
   generate_node_certificates
   add_public_keys_to_keystore
   cleanup_unused_files
-
-  echo "---- Finished updating certificates ----"
   display_certificates_info
 }
 
