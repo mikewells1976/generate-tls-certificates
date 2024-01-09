@@ -221,7 +221,7 @@ function Generate-RootCertificate {
 	}else{
 		$generatedPassword = Generate-Password
 		Create-New-RootCA
-        return [RootCA]::new("*rootCA.crt", "rootCA.key", $generatedPassword)
+        return [RootCA]::new("rootCA.crt", "rootCA.key", $generatedPassword)
 	}
 }
 
@@ -342,9 +342,6 @@ function Clean-Up-And-Instructions {
 	Remove-Item "*.jks"
 
 	Write-Host 
-	Write-Host -ForegroundColor Green "Copy the following certificates to every client:"
-	Get-ChildItem -File $rootCAcrt | foreach-object { Write-Host "> $_"}
-
 	Write-Host -ForegroundColor Green "Please make sure the $rootCAcrt is trusted on every client"
 	
 	Write-Host

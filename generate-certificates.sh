@@ -125,7 +125,6 @@ generate_password() {
   if [[ $generatePwd == "y" ]]; then
     echo 'Generating secure password for keystores'
     pwd=$(openssl rand -hex 20)
-    echo -e "${YELLOW}Generated password is $pwd"
   else
     read -s -p 'Please enter a password for the certificates and truststores: ' pwd
     echo
@@ -257,26 +256,26 @@ generate_node_certificates() {
     fi
 
     echo "Importing Root CA certificate in node keystore"
-    keytool -keystore $i-node-keystore.jks -alias rootCA -importcert -file $rootCAcrt -keypass $pwd -storepass $pwd -noprompt
+    keytool -keystore $i-node-keystore.jks -alias rootCA -importcert -file $rootCAcrt -keypass $rootCAPassword -storepass $rootCAPassword -noprompt
 
     echo "Generating new key pair for node: $i"
-    keytool -genkeypair -keyalg RSA -alias $i -keystore $i-node-keystore.jks -storepass $pwd -keypass $pwd -validity $validity -keysize $keySize -dname "CN=$i, OU=$clusterName, O=$database, C=BE" -ext "san=ip:$nodeIp,dns:$i"
+    keytool -genkeypair -keyalg RSA -alias $i -keystore $i-node-keystore.jks -storepass $rootCAPassword -keypass $rootCAPassword -validity $validity -keysize $keySize -dname "CN=$i, OU=$clusterName, O=$database, C=BE" -ext "san=ip:$nodeIp,dns:$i"
 
     echo "Creating signing request"
-    keytool -keystore $i-node-keystore.jks -alias $i -certreq -file $i.csr -keypass $pwd -storepass $pwd
+    keytool -keystore $i-node-keystore.jks -alias $i -certreq -file $i.csr -keypass $rootCAPassword -storepass $rootCAPassword
 
     echo "subjectAltName=DNS:$i,IP:$nodeIp" > "${i}.conf"
 
     echo "Signing certificate with Root CA certificate"
-    openssl x509 -req -CA rootCA.crt -CAkey rootCA.key -in $i.csr -out $i.crt_signed -days $validity -CAcreateserial -passin pass:$pwd -extfile "${i}.conf"
+    openssl x509 -req -CA rootCA.crt -CAkey rootCA.key -in $i.csr -out $i.crt_signed -days $validity -CAcreateserial -passin pass:$rootCAPassword -extfile "${i}.conf"
 
     echo "Importing signed certificate for $i in node keystore"
-    keytool -keystore $i-node-keystore.jks -alias $i -importcert -file $i.crt_signed -keypass $pwd -storepass $pwd -noprompt
+    keytool -keystore $i-node-keystore.jks -alias $i -importcert -file $i.crt_signed -keypass $rootCAPassword -storepass $rootCAPassword -noprompt
 
     echo "Exporting public key for $i"
-    keytool -exportcert -alias $i -keystore $i-node-keystore.jks -file $i-public-key.cer -storepass $pwd
+    keytool -exportcert -alias $i -keystore $i-node-keystore.jks -file $i-public-key.cer -storepass $rootCAPassword
 
-    keytool -importkeystore -srckeystore $i-node-keystore.jks -destkeystore $i-node-keystore.p12 -srcstoretype JKS -deststoretype PKCS12 -srcstorepass $pwd -deststorepass $pwd
+    keytool -importkeystore -srckeystore $i-node-keystore.jks -destkeystore $i-node-keystore.p12 -srcstoretype JKS -deststoretype PKCS12 -srcstorepass $rootCAPassword -deststorepass $rootCAPassword
 
     echo "Finished for $i"
     echo
@@ -298,7 +297,7 @@ add_public_keys_to_keystore() {
         fi
 
         echo "Importing cert from $j in $i node keystore"
-        keytool -keystore $i-node-keystore.p12 -alias $j -importcert -file $j-public-key.cer -keypass $pwd -storepass $pwd -noprompt
+        keytool -keystore $i-node-keystore.p12 -alias $j -importcert -file $j-public-key.cer -keypass $rootCAPassword -storepass $rootCAPassword -noprompt
       done
     done
   fi
@@ -316,14 +315,15 @@ cleanup_unused_files() {
 # Display certificates information
 display_certificates_info() {
   echo "---- Finished updating certificates ----"
-  
-  echo -e "${YELLOW}Copy the following certificates to every client${NC}:"
-  ls -d *rootCA.crt
 
   echo -e "${YELLOW}Please make sure the $rootCAcrt is trusted on every client"
 
-  echo -e "${YELLOW}Copy the following keystores to the matching node${NC}:"
+  echo -e "${YELLOW}Copy the following keystores to the matching node:${NC}"
   ls -d *-node-keystore.p12
+
+  if [[ $generatePwd == "y" ]]; then
+    echo -e "${YELLOW}Generated password is: $pwd${NC}"
+  fi
 
   echo 'Script completed'
   exit 0
