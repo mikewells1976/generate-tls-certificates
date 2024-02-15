@@ -105,7 +105,7 @@ class Config {
     }
 
     # Asking HostNames
-    [string] GetHostNames() {
+    [string[]] GetHostNames() {
 		$hostNames = @()
 
 		while ($true) {
@@ -211,7 +211,7 @@ function Generate-RootCertificate {
 
 		$rootCApassword = ""
 		while ($rootCApassword -eq "") {
-			$rootCApassword = Read-Host "Please enter the password to the rootCA.key file:"
+			$rootCApassword = Read-Host "Please enter the password to the rootCA.key file"
 
 			if ($rootCApassword -eq "") {
 				Write-Output "Invalid password. Please enter a valid password."
@@ -223,6 +223,17 @@ function Generate-RootCertificate {
 		Create-New-RootCA
         return [RootCA]::new("rootCA.crt", "rootCA.key", $generatedPassword)
 	}
+}
+
+# Function to verify if it's an IP Address
+function IsIpAddress([string]$inputString) {
+    $ipRegex = '^(\d{1,3}\.){3}\d{1,3}$'
+
+    if ($inputString -match $ipRegex) {
+        return $true
+    } else {
+        return $false
+    }
 }
 
 # Function to generate node certificates
@@ -261,47 +272,66 @@ function Generate-NodeCertificates {
 			# check if hostname was resolved
 			if($NodeIP -eq ""){
 				# Hostname was not resolved, ask for IP
-				$NodeIP = Read-Host "Please enter the IP address for node $i"
+				$NodeIP = Read-Host "Please enter the IP address for node '$i', which will be included as a SAN (Subject Alternative Name)"
+				while (-not (IsIpAddress $NodeIP)){
+					$NodeIP = Read-Host "Invalid IP Address. Please enter a valid IP address"
+				}
 			}
-		
-		   # Importing the public Root CA certificate in node keystore
-		   Write-Host "Importing Root CA certificate in node keystore"
-		   & "$keytool" "-keystore" "$i-node-keystore.jks" "-alias" "rootCA" "-importcert" "-file" $rootCAcrt "-keypass" "$password" "-storepass" "$password" "-noprompt"
+			
+			$inputSans = Read-Host "Please specify additional SANs (Subject Alternative Names) (space separated) [Default: None]"
+			$sansArr = $inputSANs -split " " -ne ''  # Remove empty elements
 
-		   Write-Host "Generating new key pair for node: $i"
-		   & "$keytool" "-genkeypair" "-keyalg" "RSA" "-alias" "$i" "-keystore" "$i-node-keystore.jks" "-storepass" "$password" "-keypass" "$password" "-validity" "$Validity" "-keysize" "$KeySize" "-dname" "CN=$i, OU=$ClusterName, O=$Database, C=BE" "-ext" "san=ip:$nodeIp,dns:$i"
+			$sans = [System.Text.StringBuilder]::new("san=ip:$nodeIp,dns:$i")
+			$subjectAltNames = [System.Text.StringBuilder]::new("subjectAltName=DNS:$i,IP:$NodeIP")
+			foreach($san in $sansArr)
+			{
+				if (IsIpAddress $san) {
+					$sans.Append(",ip:$san")
+					$subjectAltNames.Append(",IP:$san")
+				} else {
+					$sans.Append(",dns:$san")
+					$subjectAltNames.Append(",DNS:$san")
+				}
+			}
+			
+		   	# Importing the public Root CA certificate in node keystore
+		   	Write-Host "Importing Root CA certificate in node keystore"
+		   	& "$keytool" "-keystore" "$i-node-keystore.jks" "-alias" "rootCA" "-importcert" "-file" $rootCAcrt "-keypass" "$password" "-storepass" "$password" "-noprompt"
 
-		   Write-Host "Creating signing request"
-		   & "$keytool" "-keystore" "$i-node-keystore.jks" "-alias" "$i" "-certreq" "-file" "$i.csr" "-keypass" "$password" "-storepass" "$password" 
+			Write-Host "Generating new key pair for node: $i"
+			& "$keytool" "-genkeypair" "-keyalg" "RSA" "-alias" "$i" "-keystore" "$i-node-keystore.jks" "-storepass" "$password" "-keypass" "$password" "-validity" "$Validity" "-keysize" "$KeySize" "-dname" "CN=$i, OU=$ClusterName, O=$Database, C=BE" "-ext" "$($sans.ToString())"
 
-		   # Add both hostname and IP as subject alternative name, write this configuration to a temp file
-		   "subjectAltName=DNS:$i,IP:$NodeIP" | Out-File -Encoding "UTF8" "${i}.conf"
+			Write-Host "Creating signing request"
+			& "$keytool" "-keystore" "$i-node-keystore.jks" "-alias" "$i" "-certreq" "-file" "$i.csr" "-keypass" "$password" "-storepass" "$password" 
 
-		   # Sign the node certificate with the private key of the rootCA
-		   Write-Host "Signing certificate with Root CA certificate"
-		   & "$openssl" "x509" "-req" "-CA" $rootCAcrt "-CAkey" $rootCAkey "-in" "$i.csr" "-out" "$i.crt_signed" "-days" "$Validity" "-CAcreateserial" "-passin" "pass:$password" "-extfile" "$i.conf"
+			# Add both hostname and IP as subject alternative name, write this configuration to a temp file
+			"$($subjectAltNames)" | Out-File -Encoding "UTF8" "${i}.conf"
 
-		   # Import the signed certificate in the node key store
-		   Write-Host "Importing signed certificate for $i in node keystore"
-		   & "$keytool" "-keystore" "$i-node-keystore.jks" "-alias" "$i" "-importcert" "-file" "$i.crt_signed" "-keypass" "$password" "-storepass" "$password" "-noprompt"
+			# Sign the node certificate with the private key of the rootCA
+			Write-Host "Signing certificate with Root CA certificate"
+			& "$openssl" "x509" "-req" "-CA" $rootCAcrt "-CAkey" $rootCAkey "-in" "$i.csr" "-out" "$i.crt_signed" "-days" "$Validity" "-CAcreateserial" "-passin" "pass:$password" "-extfile" "$i.conf"
 
-		   # Export the public key for every node
-		   Write-Host "Exporting public key for $i"
-		   & "$keytool" "-exportcert" "-alias" "$i" "-keystore" "$i-node-keystore.jks" "-file" "$i-public-key.cer" "-storepass" "$password"
+			# Import the signed certificate in the node key store
+			Write-Host "Importing signed certificate for $i in node keystore"
+			& "$keytool" "-keystore" "$i-node-keystore.jks" "-alias" "$i" "-importcert" "-file" "$i.crt_signed" "-keypass" "$password" "-storepass" "$password" "-noprompt"
 
-		   # Log the certificates for this node (for debugging purposes)
-		   #Write-Host "Certificates in node-keystore for $i:"
-		   #& "$keytool -list -keystore $i-node-keystore.jks -storepass $Password"
+			# Export the public key for every node
+			Write-Host "Exporting public key for $i"
+			& "$keytool" "-exportcert" "-alias" "$i" "-keystore" "$i-node-keystore.jks" "-file" "$i-public-key.cer" "-storepass" "$password"
 
-		   # Debugging: Create keystore with public cert (mostly for CQL clients DevCenter)
-		   # Write-Host "Creating public truststore for clients"
-		   # & "$keytool" "-keystore" "$i-public-truststore.jks" "-alias" "$i" "-importcert" "-file" "$i-public-key.cer" "-keypass" "$Password" "-storepass" "$Password" "-noprompt"
-		   
-		   # Convert to PKCS#12, usable for ElasticSearch/OpenSearch
-		   Write-Host "Creating PKCS#12 from JKS for $i"
-		   & "$keytool" "-importkeystore" "-srckeystore" "$i-node-keystore.jks" "-destkeystore" "$i-node-keystore.p12" "-srcstoretype" "JKS" "-deststoretype" "PKCS12" "-srcstorepass" "$password" "-deststorepass" "$password"
-		   
-		   Write-Host "Finished for $i"
+			# Log the certificates for this node (for debugging purposes)
+			#Write-Host "Certificates in node-keystore for $i:"
+			#& "$keytool -list -keystore $i-node-keystore.jks -storepass $Password"
+
+			# Debugging: Create keystore with public cert (mostly for CQL clients DevCenter)
+			# Write-Host "Creating public truststore for clients"
+			# & "$keytool" "-keystore" "$i-public-truststore.jks" "-alias" "$i" "-importcert" "-file" "$i-public-key.cer" "-keypass" "$Password" "-storepass" "$Password" "-noprompt"
+			
+			# Convert to PKCS#12, usable for ElasticSearch/OpenSearch
+			Write-Host "Creating PKCS#12 from JKS for $i"
+			& "$keytool" "-importkeystore" "-srckeystore" "$i-node-keystore.jks" "-destkeystore" "$i-node-keystore.p12" "-srcstoretype" "JKS" "-deststoretype" "PKCS12" "-srcstorepass" "$password" "-deststorepass" "$password"
+			
+			Write-Host "Finished for $i"
 		}
 }
 
@@ -420,7 +450,7 @@ function Main{
 	$rootCA = Generate-RootCertificate -database $Database -clusterName $ClusterName -validity $Validity -keySize $Keysize
 	Generate-NodeCertificates -hostNames $HostNames -resolveHostName $ResolveHostName -password $rootCA.Password -rootCAcrt $rootCA.PathCRT -rootCAkey $rootCA.PathKey
 	Add-PublicKeysToKeystore -hostNames $HostNames -password $rootCA.Password
-	Clean-Up-And-Instructions -password $rootCA.Password -rootCAcrt $rootCA.PathCRT -rootCAkey $rootCA.PathKey
+	#Clean-Up-And-Instructions -password $rootCA.Password -rootCAcrt $rootCA.PathCRT -rootCAkey $rootCA.PathKey
 }
 
 Main
