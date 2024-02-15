@@ -450,7 +450,7 @@ function Main{
 	$rootCA = Generate-RootCertificate -database $Database -clusterName $ClusterName -validity $Validity -keySize $Keysize
 	Generate-NodeCertificates -hostNames $HostNames -resolveHostName $ResolveHostName -password $rootCA.Password -rootCAcrt $rootCA.PathCRT -rootCAkey $rootCA.PathKey
 	Add-PublicKeysToKeystore -hostNames $HostNames -password $rootCA.Password
-	#Clean-Up-And-Instructions -password $rootCA.Password -rootCAcrt $rootCA.PathCRT -rootCAkey $rootCA.PathKey
+	Clean-Up-And-Instructions -password $rootCA.Password -rootCAcrt $rootCA.PathCRT -rootCAkey $rootCA.PathKey
 }
 
 Main
