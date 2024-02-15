@@ -228,58 +228,93 @@ generate_root_certificate() {
 # Generate certificates for every node
 generate_node_certificates() {
   for i in "${hostNames[@]}"
-  do
-    echo
-    echo "Generating certificate for node: $i"
-    nodeIp=""
-
-    if [[ $resolveHostName == "y" ]]; then
-      echo "Resolving $i to IP..."
-      tempIp=$(dig $i +short)
-
-      if [[ $tempIp =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]] && [[ $tempIp != "127.0.0.1" ]]; then
-        echo "Resolved $i to IP: $tempIp"
-        nodeIp=$tempIp
+    do
+      echo
+      echo "Generating certificate for node: $i"
+      
+      if [[ $resolveHostName == "y" ]]; then
+        resolve_and_get_ip
       else
-        echo "Failed to resolve $i to a valid IP."
-        while true; do
-          read -p "Please enter the IP address for node $i: " ip_to_validate
+        get_valid_ip
+      fi
 
-          if validate_ip "$ip_to_validate"; then
+      get_sans
+
+      echo "Importing Root CA certificate in node keystore"
+      keytool -keystore $i-node-keystore.jks -alias rootCA -importcert -file $rootCAcrt -keypass $rootCAPassword -storepass $rootCAPassword -noprompt
+
+      echo "Generating new key pair for node: $i"
+      keytool -genkeypair -keyalg RSA -alias $i -keystore $i-node-keystore.jks -storepass $rootCAPassword -keypass $rootCAPassword -validity $validity -keysize $keySize -dname "CN=$i, OU=$clusterName, O=$database, C=BE" -ext $sans
+
+      echo "Creating signing request"
+      keytool -keystore $i-node-keystore.jks -alias $i -certreq -file $i.csr -keypass $rootCAPassword -storepass $rootCAPassword
+
+      echo $subjectAltNames > "${i}.conf"
+
+      echo "Signing certificate with Root CA certificate"
+      openssl x509 -req -CA rootCA.crt -CAkey rootCA.key -in $i.csr -out $i.crt_signed -days $validity -CAcreateserial -passin pass:$rootCAPassword -extfile "${i}.conf"
+
+      echo "Importing signed certificate for $i in node keystore"
+      keytool -keystore $i-node-keystore.jks -alias $i -importcert -file $i.crt_signed -keypass $rootCAPassword -storepass $rootCAPassword -noprompt
+
+      echo "Exporting public key for $i"
+      keytool -exportcert -alias $i -keystore $i-node-keystore.jks -file $i-public-key.cer -storepass $rootCAPassword
+
+      keytool -importkeystore -srckeystore $i-node-keystore.jks -destkeystore $i-node-keystore.p12 -srcstoretype JKS -deststoretype PKCS12 -srcstorepass $rootCAPassword -deststorepass $rootCAPassword
+
+      echo "Finished for $i"
+      echo
+    done
+}
+
+# Gets additional Subject Alternative Names
+get_sans(){
+    read -p "Please specify additional SANs (Subject Alternative Names) (space separated) [Default: None]: " inputSans
+    IFS=' ' read -ra sansArr <<< "$inputSans"
+
+    sans="san=ip:$nodeIp,dns:$i"
+    subjectAltNames="subjectAltName=DNS:$i,IP:$nodeIp"
+
+    for san in "${sansArr[@]}"; 
+      do
+          if validate_ip "$san"; then
+            sans+=",ip:$san"
+            subjectAltNames+=",IP:$san"
+          else
+            sans+=",dns:$san"
+            subjectAltNames+=",DNS:$san"
+          fi
+      done
+}
+
+# Gets a valid IP Address
+get_valid_ip() {
+    while true; do
+        read -p "Please enter the IP address for node $i: " ip_to_validate
+
+        if validate_ip "$ip_to_validate"; then
             nodeIp=$ip_to_validate
             break
-          else
+        else
             echo "Invalid IP. Please try again."
-          fi
-        done
-      fi
+        fi
+    done
+}
+
+# Resolves and gets the IP Address for the node
+resolve_and_get_ip() {
+    nodeIp=""
+
+    echo "Resolving $i to IP..."
+    tempIp=$(dig $i +short)
+
+    if [[ $tempIp =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]] && [[ $tempIp != "127.0.0.1" ]]; then
+        echo "Resolved $i to IP: $tempIp"
+        nodeIp=$tempIp
+    else
+        echo "Failed to resolve $i to a valid IP."
+        get_valid_ip
     fi
-
-    echo "Importing Root CA certificate in node keystore"
-    keytool -keystore $i-node-keystore.jks -alias rootCA -importcert -file $rootCAcrt -keypass $rootCAPassword -storepass $rootCAPassword -noprompt
-
-    echo "Generating new key pair for node: $i"
-    keytool -genkeypair -keyalg RSA -alias $i -keystore $i-node-keystore.jks -storepass $rootCAPassword -keypass $rootCAPassword -validity $validity -keysize $keySize -dname "CN=$i, OU=$clusterName, O=$database, C=BE" -ext "san=ip:$nodeIp,dns:$i"
-
-    echo "Creating signing request"
-    keytool -keystore $i-node-keystore.jks -alias $i -certreq -file $i.csr -keypass $rootCAPassword -storepass $rootCAPassword
-
-    echo "subjectAltName=DNS:$i,IP:$nodeIp" > "${i}.conf"
-
-    echo "Signing certificate with Root CA certificate"
-    openssl x509 -req -CA rootCA.crt -CAkey rootCA.key -in $i.csr -out $i.crt_signed -days $validity -CAcreateserial -passin pass:$rootCAPassword -extfile "${i}.conf"
-
-    echo "Importing signed certificate for $i in node keystore"
-    keytool -keystore $i-node-keystore.jks -alias $i -importcert -file $i.crt_signed -keypass $rootCAPassword -storepass $rootCAPassword -noprompt
-
-    echo "Exporting public key for $i"
-    keytool -exportcert -alias $i -keystore $i-node-keystore.jks -file $i-public-key.cer -storepass $rootCAPassword
-
-    keytool -importkeystore -srckeystore $i-node-keystore.jks -destkeystore $i-node-keystore.p12 -srcstoretype JKS -deststoretype PKCS12 -srcstorepass $rootCAPassword -deststorepass $rootCAPassword
-
-    echo "Finished for $i"
-    echo
-  done
 }
 
 # Add public key of every node to the keystore of every other node
