@@ -20,22 +20,22 @@ class Config {
     Config() {
     }
 
-    # Asking database type and verify
-    [string] GetDatabase() {
-		$databaseInput = ""
+    # Asking organization type and verify
+    [string] GetOrganization() {
+		$organizationInput = ""
 		while ($true) {
-			$databaseInput = Read-Host "Which database are you generating certificates for? [Default: Cassandra, Options: Cassandra|Elastic|OpenSearch]"
-			if($databaseInput -eq ""){
-				$databaseInput = "Cassandra"
+			$organizationInput = Read-Host "Which organization are you generating certificates for? [Default: Cassandra, Options: Cassandra|Elastic|OpenSearch|NATS]"
+			if($organizationInput -eq ""){
+				$organizationInput = "Cassandra"
 			}
-			if($databaseInput -notin @("Cassandra","Elastic","OpenSearch")){
-				Write-Host -ForegroundColor red "Invalid input: Database should be either Cassandra, Elastic or OpenSearch"
+			if($organizationInput -notin @("Cassandra","Elastic","OpenSearch", "NATS")){
+				Write-Host -ForegroundColor red "Invalid input: Organization should be either Cassandra, Elastic, OpenSearch or NATS"
 			}else{
 				break
 			}
     	}
 
-        return $databaseInput
+        return $organizationInput
     }
 
     # Asking for clustername and verify
@@ -171,6 +171,7 @@ function Clean-WorkingDirectory {
         Remove-Item "*.conf"
         Remove-Item "*.srl"
         Remove-Item "*.p12"
+		Remove-Item "*.pem"
     }
 }
 
@@ -187,7 +188,7 @@ function Create-New-RootCA{
 
 	[ req_distinguished_name ]
 	C     = BE
-	O     = $Database
+	O     = $Organization
 	CN    = rootCA
 	OU    = `"$ClusterName`"" | Out-File -Encoding "UTF8" rootCA.conf
 
@@ -198,7 +199,7 @@ function Create-New-RootCA{
 # Function to generate root certificate
 function Generate-RootCertificate {
     param(
-        [string]$database,
+        [string]$organization,
         [string]$clusterName,
         [int]$validity,
         [int]$keySize
@@ -236,9 +237,49 @@ function IsIpAddress([string]$inputString) {
     }
 }
 
+# Function to resolve the HostName to IP Address
+function GetIpByHostname {
+    param (
+        [string]$HostName
+    )
+
+	$NodeIP = ""
+	# check if we need to resolve the hostname
+	if($ResolveHostName -ine "n"){
+		Write-Host "Resolving $i to IP..."
+		try {
+			$ResIp = Resolve-DnsName -Name $i -ErrorAction Stop |  Select -ExpandProperty "IpAddress" | Out-String
+			$ResIp = $ResIp.Trim()
+			if( ($ResIp -match '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$') -and ($ResIp -ne '127.0.0.1') ){
+				Write-Host -ForeGroundColor Green "Resolved $i to IP: $ResIp"
+				$NodeIP = $ResIp
+			}
+			else {
+				Write-Host "Could not resolve the hostname to a single IP. I found the following IPs:"
+				Write-Host -ForegroundColor Green $ResIp
+			}
+		}
+		catch {
+			Write-Host -ForeGroundColor Yellow "Failed to resolve $i to a valid IP."
+		}
+	}
+
+	# check if hostname was resolved
+	if($NodeIP -eq ""){
+		# Hostname was not resolved, ask for IP
+		$NodeIP = Read-Host "Please enter the IP address for node '$i', which will be included as a SAN (Subject Alternative Name)"
+		while (-not (IsIpAddress $NodeIP)){
+			$NodeIP = Read-Host "Invalid IP Address. Please enter a valid IP address"
+		}
+	}
+
+	return $NodeIp
+}
+
 # Function to generate node certificates
 function Generate-NodeCertificates {
     param(
+		[string]$organization,
         [array]$hostNames,
         [string]$resolveHostName,
         [string]$password,
@@ -248,91 +289,82 @@ function Generate-NodeCertificates {
 
     foreach ($i in $HostNames) {
 		Write-Host "Generating certificate for node: $i"
-		 $NodeIP = ""
-			# check if we need to resolve the hostname
-			if($ResolveHostName -ine "n"){
-				Write-Host "Resolving $i to IP..."
-				try {
-					$ResIp = Resolve-DnsName -Name $i -ErrorAction Stop |  Select -ExpandProperty "IpAddress" | Out-String
-					$ResIp = $ResIp.Trim()
-					if( ($ResIp -match '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$') -and ($ResIp -ne '127.0.0.1') ){
-						Write-Host -ForeGroundColor Green "Resolved $i to IP: $ResIp"
-						$NodeIP = $ResIp
-					}
-					else {
-						Write-Host "Could not resolve the hostname to a single IP. I found the following IPs:"
-						Write-Host -ForegroundColor Green $ResIp
-					}
-				}
-				catch {
-					Write-Host -ForeGroundColor Yellow "Failed to resolve $i to a valid IP."
-				}
+		$NodeIp = GetIpByHostname -hostname $i
+			
+		$inputSans = Read-Host "Please specify additional SANs (Subject Alternative Names) (space separated) [Default: None]"
+		$sansArr = $inputSANs -split " " -ne ''  # Remove empty elements
+
+		$sans = [System.Text.StringBuilder]::new("san=ip:$nodeIp,dns:$i")
+		$subjectAltNames = [System.Text.StringBuilder]::new("subjectAltName=DNS:$i,IP:$NodeIP")
+		foreach($san in $sansArr)
+		{
+			if (IsIpAddress $san) {
+				$sans.Append(",ip:$san")
+				$subjectAltNames.Append(",IP:$san")
+			} else {
+				$sans.Append(",dns:$san")
+				$subjectAltNames.Append(",DNS:$san")
 			}
-
-			# check if hostname was resolved
-			if($NodeIP -eq ""){
-				# Hostname was not resolved, ask for IP
-				$NodeIP = Read-Host "Please enter the IP address for node '$i', which will be included as a SAN (Subject Alternative Name)"
-				while (-not (IsIpAddress $NodeIP)){
-					$NodeIP = Read-Host "Invalid IP Address. Please enter a valid IP address"
-				}
-			}
-			
-			$inputSans = Read-Host "Please specify additional SANs (Subject Alternative Names) (space separated) [Default: None]"
-			$sansArr = $inputSANs -split " " -ne ''  # Remove empty elements
-
-			$sans = [System.Text.StringBuilder]::new("san=ip:$nodeIp,dns:$i")
-			$subjectAltNames = [System.Text.StringBuilder]::new("subjectAltName=DNS:$i,IP:$NodeIP")
-			foreach($san in $sansArr)
-			{
-				if (IsIpAddress $san) {
-					$sans.Append(",ip:$san")
-					$subjectAltNames.Append(",IP:$san")
-				} else {
-					$sans.Append(",dns:$san")
-					$subjectAltNames.Append(",DNS:$san")
-				}
-			}
-			
-		   	# Importing the public Root CA certificate in node keystore
-		   	Write-Host "Importing Root CA certificate in node keystore"
-		   	& "$keytool" "-keystore" "$i-node-keystore.jks" "-alias" "rootCA" "-importcert" "-file" $rootCAcrt "-keypass" "$password" "-storepass" "$password" "-noprompt"
-
-			Write-Host "Generating new key pair for node: $i"
-			& "$keytool" "-genkeypair" "-keyalg" "RSA" "-alias" "$i" "-keystore" "$i-node-keystore.jks" "-storepass" "$password" "-keypass" "$password" "-validity" "$Validity" "-keysize" "$KeySize" "-dname" "CN=$i, OU=$ClusterName, O=$Database, C=BE" "-ext" "$($sans.ToString())"
-
-			Write-Host "Creating signing request"
-			& "$keytool" "-keystore" "$i-node-keystore.jks" "-alias" "$i" "-certreq" "-file" "$i.csr" "-keypass" "$password" "-storepass" "$password" 
-
-			# Add both hostname and IP as subject alternative name, write this configuration to a temp file
-			"$($subjectAltNames)" | Out-File -Encoding "UTF8" "${i}.conf"
-
-			# Sign the node certificate with the private key of the rootCA
-			Write-Host "Signing certificate with Root CA certificate"
-			& "$openssl" "x509" "-req" "-CA" $rootCAcrt "-CAkey" $rootCAkey "-in" "$i.csr" "-out" "$i.crt_signed" "-days" "$Validity" "-CAcreateserial" "-passin" "pass:$password" "-extfile" "$i.conf"
-
-			# Import the signed certificate in the node key store
-			Write-Host "Importing signed certificate for $i in node keystore"
-			& "$keytool" "-keystore" "$i-node-keystore.jks" "-alias" "$i" "-importcert" "-file" "$i.crt_signed" "-keypass" "$password" "-storepass" "$password" "-noprompt"
-
-			# Export the public key for every node
-			Write-Host "Exporting public key for $i"
-			& "$keytool" "-exportcert" "-alias" "$i" "-keystore" "$i-node-keystore.jks" "-file" "$i-public-key.cer" "-storepass" "$password"
-
-			# Log the certificates for this node (for debugging purposes)
-			#Write-Host "Certificates in node-keystore for $i:"
-			#& "$keytool -list -keystore $i-node-keystore.jks -storepass $Password"
-
-			# Debugging: Create keystore with public cert (mostly for CQL clients DevCenter)
-			# Write-Host "Creating public truststore for clients"
-			# & "$keytool" "-keystore" "$i-public-truststore.jks" "-alias" "$i" "-importcert" "-file" "$i-public-key.cer" "-keypass" "$Password" "-storepass" "$Password" "-noprompt"
-			
-			# Convert to PKCS#12, usable for ElasticSearch/OpenSearch
-			Write-Host "Creating PKCS#12 from JKS for $i"
-			& "$keytool" "-importkeystore" "-srckeystore" "$i-node-keystore.jks" "-destkeystore" "$i-node-keystore.p12" "-srcstoretype" "JKS" "-deststoretype" "PKCS12" "-srcstorepass" "$password" "-deststorepass" "$password"
-			
-			Write-Host "Finished for $i"
 		}
+		
+		# Importing the public Root CA certificate in node keystore
+		Write-Host "Importing Root CA certificate in node keystore"
+		& "$keytool" "-keystore" "$i-node-keystore.jks" "-alias" "rootCA" "-importcert" "-file" $rootCAcrt "-keypass" "$password" "-storepass" "$password" "-noprompt"
+
+		Write-Host "Generating new key pair for node: $i"
+		& "$keytool" "-genkeypair" "-keyalg" "RSA" "-alias" "$i" "-keystore" "$i-node-keystore.jks" "-storepass" "$password" "-keypass" "$password" "-validity" "$Validity" "-keysize" "$KeySize" "-dname" "CN=$i, OU=$ClusterName, O=$Organization, C=BE" "-ext" "$($sans.ToString())"
+
+		Write-Host "Creating signing request"
+		& "$keytool" "-keystore" "$i-node-keystore.jks" "-alias" "$i" "-certreq" "-file" "$i.csr" "-keypass" "$password" "-storepass" "$password" 
+
+		# Add both hostname and IP as subject alternative name, write this configuration to a temp file
+		"$($subjectAltNames)" | Out-File -Encoding "UTF8" "${i}.conf"
+
+		# Sign the node certificate with the private key of the rootCA
+		Write-Host "Signing certificate with Root CA certificate"
+		& "$openssl" "x509" "-req" "-CA" $rootCAcrt "-CAkey" $rootCAkey "-in" "$i.csr" "-out" "$i.crt_signed" "-days" "$Validity" "-CAcreateserial" "-passin" "pass:$password" "-extfile" "$i.conf"
+
+		# Import the signed certificate in the node key store
+		Write-Host "Importing signed certificate for $i in node keystore"
+		& "$keytool" "-keystore" "$i-node-keystore.jks" "-alias" "$i" "-importcert" "-file" "$i.crt_signed" "-keypass" "$password" "-storepass" "$password" "-noprompt"
+
+		# Export the public key for every node
+		Write-Host "Exporting public key for $i"
+		& "$keytool" "-exportcert" "-alias" "$i" "-keystore" "$i-node-keystore.jks" "-file" "$i-public-key.cer" "-storepass" "$password"
+
+		# Debugging: Log the certificates for this node
+		#Write-Host "Certificates in node-keystore for $i:"
+		#& "$keytool -list -keystore $i-node-keystore.jks -storepass $Password"
+
+		# Debugging: Create keystore with public cert (mostly for CQL clients DevCenter)
+		# Write-Host "Creating public truststore for clients"
+		# & "$keytool" "-keystore" "$i-public-truststore.jks" "-alias" "$i" "-importcert" "-file" "$i-public-key.cer" "-keypass" "$Password" "-storepass" "$Password" "-noprompt"
+		
+		# Convert to PKCS#12, usable for ElasticSearch/OpenSearch
+		Write-Host "Creating PKCS#12 from JKS for $i"
+		& "$keytool" "-importkeystore" "-srckeystore" "$i-node-keystore.jks" "-destkeystore" "$i-node-keystore.p12" "-srcstoretype" "JKS" "-deststoretype" "PKCS12" "-srcstorepass" "$password" "-deststorepass" "$password"
+		
+		# Generating certificate.pem file in case of NATS
+		if ($organization -eq "NATS") {							
+			Write-Host "Generating PEM files"
+			& "$openssl" "pkcs12" "-in" "$i-node-keystore.p12" "-out" "$i-certificate.pem" "-clcerts" "-nokeys" "-passin" "pass:$password"
+			& "$openssl" "pkcs12" "-in" "$i-node-keystore.p12" "-out" "$i-key.pem" "-nocerts" "-nodes" "-passin" "pass:$password"
+
+			# Read the content of the files
+			$certFileContent = Get-Content -Path "$i-certificate.pem" -Raw
+			$keyFileContent = Get-Content -Path "$i-key.pem" -Raw
+
+			# Use regular expression to remove the "Bag Attributes" section
+			$cleanedCertFileContent = $certFileContent -replace '(?s)Bag Attributes.*?-----BEGIN CERTIFICATE-----', '-----BEGIN CERTIFICATE-----'
+			$cleanedKeyFileContent = $keyFileContent -replace '(?s)Bag Attributes.*?-----BEGIN PRIVATE KEY-----', '-----BEGIN PRIVATE KEY-----'
+
+			# Write the cleaned content back to the files
+			$cleanedCertFileContent | Set-Content -Path "$i-certificate.pem"
+			$cleanedKeyFileContent | Set-Content -Path "$i-key.pem"
+		}
+
+		Write-Host "Finished for $i"
+	}
 }
 
 # Function to add public keys to keystore of every other node
@@ -386,7 +418,7 @@ function Clean-Up-And-Instructions {
 # Function to log the configuration details
 function Log-ConfigurationDetails {
     param(
-        [string]$database,
+        [string]$organization,
         [string]$clusterNames,
         [string]$hostNames,
         [string]$validity,
@@ -395,7 +427,7 @@ function Log-ConfigurationDetails {
     )
 
     Write-Host "---- Generating Node(s) Certificates ----"
-    Write-Host "Database type: $Database"
+    Write-Host "Organization type: $Organization"
     Write-Host "Cluster name: $ClusterNames"
     Write-Host "Host names: $HostNames"
     Write-Host "Validity: $Validity"
@@ -436,9 +468,9 @@ function Main{
 	Clean-WorkingDirectory
 
 	# Configuration phase
-	Write-Host "Starting Cassandra/Elastic/OpenSearch TLS encryption configuration..."
+	Write-Host "Starting Cassandra/Elastic/OpenSearch/NATS TLS encryption configuration..."
     $config = [Config]::new()
-    $Database = $config.GetDatabase()
+    $Organization = $config.GetOrganization()
     $ClusterName = $config.GetClusterName()
     $Hostnames = $config.GetHostNames()
     $Validity = $config.GetValidaty()
@@ -446,9 +478,9 @@ function Main{
     $ResolveHostName = $config.AskResolveHostName()
 
     # Certificates phase
-    Log-ConfigurationDetails -database $Database -clusterNames $ClusterName -hostNames $Hostnames -validity $Validity -keysize $Keysize -resolveHostName $ResolveHostName
-	$rootCA = Generate-RootCertificate -database $Database -clusterName $ClusterName -validity $Validity -keySize $Keysize
-	Generate-NodeCertificates -hostNames $HostNames -resolveHostName $ResolveHostName -password $rootCA.Password -rootCAcrt $rootCA.PathCRT -rootCAkey $rootCA.PathKey
+    Log-ConfigurationDetails -organization $Organization -clusterNames $ClusterName -hostNames $Hostnames -validity $Validity -keysize $Keysize -resolveHostName $ResolveHostName
+	$rootCA = Generate-RootCertificate -organization $Organization -clusterName $ClusterName -validity $Validity -keySize $Keysize
+	Generate-NodeCertificates -organization $Organization -hostNames $HostNames -resolveHostName $ResolveHostName -password $rootCA.Password -rootCAcrt $rootCA.PathCRT -rootCAkey $rootCA.PathKey
 	Add-PublicKeysToKeystore -hostNames $HostNames -password $rootCA.Password
 	Clean-Up-And-Instructions -password $rootCA.Password -rootCAcrt $rootCA.PathCRT -rootCAkey $rootCA.PathKey
 }
