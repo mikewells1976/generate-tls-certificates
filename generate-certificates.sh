@@ -286,8 +286,8 @@ get_sans(){
     read -p "Please specify additional SANs (Subject Alternative Names) (space separated) [Default: None]: " inputSans
     IFS=' ' read -ra sansArr <<< "$inputSans"
 
-    sans="san=ip:$nodeIp,dns:$i"
-    subjectAltNames="subjectAltName=DNS:$i,IP:$nodeIp"
+    sans="san=ip:$nodeIp"
+    subjectAltNames="subjectAltName=IP:$nodeIp"
 
     for san in "${sansArr[@]}"; 
       do
