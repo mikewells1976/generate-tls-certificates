@@ -218,7 +218,7 @@ function Generate-RootCertificate {
 				Write-Output "Invalid password. Please enter a valid password."
 			}
     	}
-        return [RootCA]::new($rootCAcrt, $rootCApwd, $rootCApassword)
+        return [RootCA]::new($rootCAcrt, $rootCAkey, $rootCApassword)
 	}else{
 		$generatedPassword = Generate-Password
 		Create-New-RootCA
