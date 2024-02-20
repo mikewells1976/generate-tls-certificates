@@ -24,12 +24,12 @@ class Config {
     [string] GetOrganization() {
 		$organizationInput = ""
 		while ($true) {
-			$organizationInput = Read-Host "Which organization are you generating certificates for? [Default: Cassandra, Options: Cassandra|Elastic|OpenSearch|NATS]"
+			$organizationInput = Read-Host "Which instance are you generating certificates for? [Default: Cassandra, Options: Cassandra|Elastic|OpenSearch|NATS]"
 			if($organizationInput -eq ""){
 				$organizationInput = "Cassandra"
 			}
 			if($organizationInput -notin @("Cassandra","Elastic","OpenSearch", "NATS")){
-				Write-Host -ForegroundColor red "Invalid input: Organization should be either Cassandra, Elastic, OpenSearch or NATS"
+				Write-Host -ForegroundColor red "Invalid input: Instance should be either Cassandra, Elastic, OpenSearch or NATS"
 			}else{
 				break
 			}

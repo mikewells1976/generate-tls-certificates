@@ -35,10 +35,10 @@ cleanup_files() {
 # Asking for organization type and verify
 get_organization_type() {
   while true; do
-    read -p 'Which organization are you generating certificates for? [Default: Cassandra, Options: Cassandra|Elastic|OpenSearch|NATS] ' organization
+    read -p 'Which instance are you generating certificates for? [Default: Cassandra, Options: Cassandra|Elastic|OpenSearch|NATS] ' organization
     organization=${organization:-Cassandra}
     if [[ "${organization,,}" != "cassandra" && "${organization,,}" != "elastic" && "${organization,,}" != "opensearch" && "${organization,,}" != "nats" ]]; then
-      echo -e "${RED}Invalid input:${NC} organization type should be Cassandra, Elastic, OpenSearch or NATS"
+      echo -e "${RED}Invalid input:${NC} instance type should be Cassandra, Elastic, OpenSearch or NATS"
     else
       break
     fi
