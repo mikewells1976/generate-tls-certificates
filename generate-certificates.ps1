@@ -218,7 +218,7 @@ function Generate-RootCertificate {
 				Write-Output "Invalid password. Please enter a valid password."
 			}
     	}
-        return [RootCA]::new($rootCAcrt, $rootCApwd, $rootCApassword)
+        return [RootCA]::new($rootCAcrt, $rootCAkey, $rootCApassword)
 	}else{
 		$generatedPassword = Generate-Password
 		Create-New-RootCA
@@ -294,8 +294,9 @@ function Generate-NodeCertificates {
 		$inputSans = Read-Host "Please specify additional SANs (Subject Alternative Names) (space separated) [Default: None]"
 		$sansArr = $inputSANs -split " " -ne ''  # Remove empty elements
 
-		$sans = [System.Text.StringBuilder]::new("san=ip:$nodeIp,dns:$i")
-		$subjectAltNames = [System.Text.StringBuilder]::new("subjectAltName=DNS:$i,IP:$NodeIP")
+		# Add SANs (Subject Alternative Names)
+		$sans = [System.Text.StringBuilder]::new("san=ip:$nodeIp")
+		$subjectAltNames = [System.Text.StringBuilder]::new("subjectAltName=IP:$NodeIP")
 		foreach($san in $sansArr)
 		{
 			if (IsIpAddress $san) {
