@@ -28,16 +28,17 @@ cleanup_files() {
     find . -type f -iname \*.cer -delete
     find . -type f -iname \*.crl -delete
     find . -type f -iname \*.p12 -delete
+    find . -type f -iname \*.pem -delete
   fi
 }
 
-# Asking for database type and verify
-get_database_type() {
+# Asking for organization type and verify
+get_organization_type() {
   while true; do
-    read -p 'Which database are you generating certificates for? [Default: Cassandra, Options: Cassandra|Elastic|OpenSearch] ' database
-    database=${database:-Cassandra}
-    if [[ "${database,,}" != "cassandra" && "${database,,}" != "elastic" && "${database,,}" != "opensearch" ]]; then
-      echo -e "${RED}Invalid input:${NC} database type should be Cassandra, Elastic, or OpenSearch"
+    read -p 'Which organization are you generating certificates for? [Default: Cassandra, Options: Cassandra|Elastic|OpenSearch|NATS] ' organization
+    organization=${organization:-Cassandra}
+    if [[ "${organization,,}" != "cassandra" && "${organization,,}" != "elastic" && "${organization,,}" != "opensearch" && "${organization,,}" != "nats" ]]; then
+      echo -e "${RED}Invalid input:${NC} organization type should be Cassandra, Elastic, OpenSearch or NATS"
     else
       break
     fi
@@ -46,7 +47,7 @@ get_database_type() {
 
 # Setting the PATH variable for OpenSearch
 set_opensearch_path() {
-  if [[ "${database,,}" == "opensearch" ]]; then
+  if [[ "${organization,,}" == "opensearch" ]]; then
     PATH+=:/usr/share/opensearch/jdk/bin/
     echo "When choosing OpenSearch, PATH is temporarily modified to include java keytool"
     echo "Contents of the PATH variable: $PATH"
@@ -213,7 +214,7 @@ generate_root_certificate() {
 
     [req_distinguished_name]
     C     = BE
-    O     = $database
+    O     = $organization
     CN    = rootCA
     OU    = \"$clusterName\"" > generate_rootCA.conf
 
@@ -244,7 +245,7 @@ generate_node_certificates() {
       keytool -keystore $i-node-keystore.jks -alias rootCA -importcert -file $rootCAcrt -keypass $rootCAPassword -storepass $rootCAPassword -noprompt
 
       echo "Generating new key pair for node: $i"
-      keytool -genkeypair -keyalg RSA -alias $i -keystore $i-node-keystore.jks -storepass $rootCAPassword -keypass $rootCAPassword -validity $validity -keysize $keySize -dname "CN=$i, OU=$clusterName, O=$database, C=BE" -ext $sans
+      keytool -genkeypair -keyalg RSA -alias $i -keystore $i-node-keystore.jks -storepass $rootCAPassword -keypass $rootCAPassword -validity $validity -keysize $keySize -dname "CN=$i, OU=$clusterName, O=$organization, C=BE" -ext $sans
 
       echo "Creating signing request"
       keytool -keystore $i-node-keystore.jks -alias $i -certreq -file $i.csr -keypass $rootCAPassword -storepass $rootCAPassword
@@ -261,6 +262,16 @@ generate_node_certificates() {
       keytool -exportcert -alias $i -keystore $i-node-keystore.jks -file $i-public-key.cer -storepass $rootCAPassword
 
       keytool -importkeystore -srckeystore $i-node-keystore.jks -destkeystore $i-node-keystore.p12 -srcstoretype JKS -deststoretype PKCS12 -srcstorepass $rootCAPassword -deststorepass $rootCAPassword
+
+      if [[ "${organization,,}" == "nats" ]]; then
+        echo "Generating PEM files"
+        openssl pkcs12 -in "$i-node-keystore.p12" -out "$i-certificate.pem" -clcerts -nokeys -passin 'pass:'"$rootCAPassword"
+        openssl pkcs12 -in "$i-node-keystore.p12" -out "$i-key.pem" -nocerts -nodes -passin 'pass:'"$rootCAPassword"
+
+        # Remove the "Bag Attributes" section
+        awk '/-----BEGIN CERTIFICATE-----/{flag=1; print $0; next} flag' "$i-certificate.pem" > temp_file && mv temp_file "$i-certificate.pem"
+        awk '/-----BEGIN PRIVATE KEY-----/{flag=1; print $0; next} flag' "$i-key.pem" > temp_file && mv temp_file "$i-key.pem"
+      fi
 
       echo "Finished for $i"
       echo
@@ -368,8 +379,8 @@ display_certificates_info() {
 main() {
   check_superuser
   cleanup_files
-  echo 'Starting Cassandra/Elastic/OpenSearch TLS encryption configuration...'
-  get_database_type
+  echo 'Starting Cassandra/Elastic/OpenSearch/NATS TLS encryption configuration...'
+  get_organization_type
   set_opensearch_path
   get_cluster_info
   get_certificate_options
