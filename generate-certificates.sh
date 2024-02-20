@@ -271,6 +271,9 @@ generate_node_certificates() {
         # Remove the "Bag Attributes" section
         awk '/-----BEGIN CERTIFICATE-----/{flag=1; print $0; next} flag' "$i-certificate.pem" > temp_file && mv temp_file "$i-certificate.pem"
         awk '/-----BEGIN PRIVATE KEY-----/{flag=1; print $0; next} flag' "$i-key.pem" > temp_file && mv temp_file "$i-key.pem"
+
+        # Remove .p12 file
+        find . -type f -iname \*.p12 -delete
       fi
 
       echo "Finished for $i"

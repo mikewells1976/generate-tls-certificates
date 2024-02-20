@@ -361,6 +361,9 @@ function Generate-NodeCertificates {
 			# Write the cleaned content back to the files
 			$cleanedCertFileContent | Set-Content -Path "$i-certificate.pem"
 			$cleanedKeyFileContent | Set-Content -Path "$i-key.pem"
+
+			# Remove .p12 file
+			Remove-Item "*.p12"
 		}
 
 		Write-Host "Finished for $i"
