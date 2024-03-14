@@ -2,8 +2,45 @@
 These scripts streamline the creation of TLS certificates to ensure the security of **Cassandra**, **ElasticSearch**, **OpenSearch**, or **NATS** instances. They automate the entire process, encompassing the generation of a Root Certificate Authority (CA) certificate, node-specific certificates, and seamless certificate management tasks.
 
 ## Prerequisites
-Ensure you have Administrator privileges to execute the scripts successfully.
+- Ensure you have Administrator privileges to execute the scripts successfully.
+- Ensure that **openssl.exe** and **keytool.exe** are available on your system. 
 
+### Linux/Mac
+#### openssl
+1. Open a terminal.
+2. Check the available OpenJDK versions
+   ```bash
+    apt search openjdk
+    ```
+4. Install the desired OpenJDK version
+    ```bash
+    sudo apt-get update
+    sudo apt-get install openjdk-[VERSION]-jdk
+     ```
+    
+#### keytool
+1. If you already have OpenJDK installed and just need to ensure keytool is available by running
+
+    ```bash
+    which keytool
+     ```
+     
+### Windows
+#### openssl
+1. Check if openssl is installed and retrieve it's location.
+    ```powershell
+    Get-Command openssl
+    ```
+   If not it can be installed alongside with [Git](https://git-scm.com/downloads).
+2. Check if openssl is installed and retrieve it's location.
+    ```powershell
+    Get-Command keytool
+    ```
+    If not it can be installed alongside with [OpenJDK](https://openjdk.org/).
+    
+
+#### keytool
+ 
 ## Usage 
 ### Running `generate-tls-certificates.sh` (Linux/Mac)
 
