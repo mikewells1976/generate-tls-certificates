@@ -6,7 +6,7 @@ These scripts streamline the creation of TLS certificates to ensure the security
 - Ensure that **openssl.exe** and **keytool.exe** are available on your system. 
 
 ### Linux/Mac
-#### openssl
+#### Openssl
 1. Open a terminal.
 2. Check the available OpenJDK versions
    ```bash
@@ -18,29 +18,29 @@ These scripts streamline the creation of TLS certificates to ensure the security
     sudo apt-get install openjdk-[VERSION]-jdk
      ```
     
-#### keytool
-1. If you already have OpenJDK installed and just need to ensure keytool is available by running
+#### Keytool
+1. If you already have OpenJDK installed and just need to ensure Keytool is available by running
 
     ```bash
     which keytool
      ```
      
 ### Windows
-#### openssl
-1. Check if openssl is installed and retrieve it's location.
+#### OpenSSL
+1. Check if OpenSSL is installed and retrieve its location by executing the command:
     ```powershell
     Get-Command openssl
     ```
-   If not it can be installed alongside with [Git](https://git-scm.com/downloads).
-2. Check if openssl is installed and retrieve it's location.
+   If it is not installed, consider installing it alongside with [Git](https://git-scm.com/downloads).
+
+    
+#### Keytool
+1. Check if Keytool is installed and retrieve its location by executing the command:
     ```powershell
     Get-Command keytool
     ```
-    If not it can be installed alongside with [OpenJDK](https://openjdk.org/).
-    
-
-#### keytool
- 
+   If it is not installed, consider installing it alongside with [OpenJDK](https://openjdk.org/).
+   
 ## Usage 
 ### Running `generate-tls-certificates.sh` (Linux/Mac)
 
