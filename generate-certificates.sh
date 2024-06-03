@@ -253,7 +253,7 @@ generate_node_certificates() {
       echo $subjectAltNames > "${i}.conf"
 
       echo "Signing certificate with Root CA certificate"
-      openssl x509 -req -CA rootCA.crt -CAkey rootCA.key -in $i.csr -out $i.crt_signed -days $validity -CAcreateserial -passin pass:$rootCAPassword -extfile "${i}.conf"
+      openssl x509 -req -CA $rootCAcrt -CAkey $rootCAkey -in $i.csr -out $i.crt_signed -days $validity -CAcreateserial -passin pass:$rootCAPassword -extfile "${i}.conf"
 
       echo "Importing signed certificate for $i in node keystore"
       keytool -keystore $i-node-keystore.jks -alias $i -importcert -file $i.crt_signed -keypass $rootCAPassword -storepass $rootCAPassword -noprompt
@@ -279,6 +279,36 @@ generate_node_certificates() {
       echo "Finished for $i"
       echo
     done
+}
+
+# Generate an Admin certificate (only required for OpenSearch)
+generate_admin_certificate(){
+  echo "Generating the Admin certificate"
+
+	echo "[ req ]
+	distinguished_name  = req_distinguished_name
+	prompt              = no
+	output_password     = \"$rootCAPassword\"
+	default_bits        = $keysize
+
+	[ req_distinguished_name ]
+	C     = BE
+	O     = $organization
+	CN    = Admin
+	OU    = \"$clusterName\"" > Admin.conf
+
+
+	# generate new keypair
+	openssl genrsa -out admin_key.tmp $keysize
+
+	# convert to PKCS8 format
+	openssl pkcs8 -inform PEM -in admin_key.tmp -topk8 -nocrypt -v1 PBE-SHA1-3DES -out admin-key.pem
+
+	# generate signing request
+	openssl req -new -key admin-key.pem -out admin.csr -config Admin.conf
+
+	# sign the cert with the RootCA
+	openssl x509 -req -CA $rootCAcrt -CAkey $rootCAkey -in admin.csr -out admin.pem -days $validity -CAcreateserial -passin pass:$rootCAPassword
 }
 
 # Gets additional Subject Alternative Names
@@ -358,6 +388,7 @@ cleanup_unused_files() {
   find . -type f -iname \*.csr -delete
   find . -type f -iname \*.conf -delete
   find . -type f -iname \*.srl -delete
+  find . -type f -iname \*.tmp -delete
   find . -type f -iname \*.jks -delete
 }
 
@@ -392,6 +423,11 @@ main() {
   generate_root_certificate
   generate_node_certificates
   add_public_keys_to_keystore
+
+  if [[ "${organization,,}" == "opensearch" ]]; then
+    generate_admin_certificate
+  fi
+
   cleanup_unused_files
   display_certificates_info
 }
