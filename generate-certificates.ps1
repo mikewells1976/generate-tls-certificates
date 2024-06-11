@@ -371,6 +371,40 @@ function Generate-NodeCertificates {
 	}
 }
 
+# Function to generate an Admin certificate (only required for OpenSearch)
+function Generate-Admin-Certificate{
+	param(
+        [string]$password,
+        [string]$rootCAcrt,
+        [string]$rootCAkey
+    )
+	Write-Host "Generating the Admin certificate"
+	"[ req ]
+	distinguished_name  = req_distinguished_name
+	prompt              = no
+	output_password     = `"$Password`"
+	default_bits        = $KeySize
+
+	[ req_distinguished_name ]
+	C     = BE
+	O     = $Organization
+	CN    = Admin
+	OU    = `"$ClusterName`"" | Out-File -Encoding "UTF8" Admin.conf
+
+
+	# generate new keypair
+	& "$openssl" "genrsa" "-out" "admin_key.tmp" "$keysize"
+
+	# convert to PKCS8 format
+	& "$openssl" "pkcs8" "-inform" "PEM" "-in" "admin_key.tmp" "-topk8" "-nocrypt" "-v1" "PBE-SHA1-3DES" "-out" "admin-key.pem"
+
+	# generate signing request
+	& "$openssl" "req" "-new" "-key" "admin-key.pem" "-out" "admin.csr" "-config" "Admin.conf"
+
+	# sign the cert with the RootCA
+	& "$openssl" "x509" "-req" "-CA" $rootCAcrt "-CAkey" $rootCAkey "-in" "admin.csr" "-out" "admin.pem" "-days" "$Validity" "-CAcreateserial" "-passin" "pass:$password"
+}
+
 # Function to add public keys to keystore of every other node
 function Add-PublicKeysToKeystore {
     param(
@@ -404,6 +438,7 @@ function Clean-Up-And-Instructions {
 	Remove-Item "*.csr"
 	Remove-Item "*.conf"
 	Remove-Item "*.srl"
+	Remove-Item "*.tmp"
 	# Remove line below for debugging with devcenter
 	Remove-Item "*.jks"
 
@@ -486,6 +521,11 @@ function Main{
 	$rootCA = Generate-RootCertificate -organization $Organization -clusterName $ClusterName -validity $Validity -keySize $Keysize
 	Generate-NodeCertificates -organization $Organization -hostNames $HostNames -resolveHostName $ResolveHostName -password $rootCA.Password -rootCAcrt $rootCA.PathCRT -rootCAkey $rootCA.PathKey
 	Add-PublicKeysToKeystore -hostNames $HostNames -password $rootCA.Password
+
+	if($Organization -eq "OpenSearch"){
+		Generate-Admin-Certificate -password $rootCA.Password -rootCAcrt $rootCA.PathCRT -rootCAkey $rootCA.PathKey
+	}
+
 	Clean-Up-And-Instructions -password $rootCA.Password -rootCAcrt $rootCA.PathCRT -rootCAkey $rootCA.PathKey
 }
 
