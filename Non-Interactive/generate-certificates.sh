@@ -56,7 +56,6 @@ while getopts "d:o:c:v:k:g:u:i:j:p:h:" opt; do
 done
 
 validate_cluster_name() {
-    local cluster_name="$1"
     if [[ $(grep -P "[\x80-\xFF]" <<< $cluster_name) ]]; then
         echo -e "${RED}Warning:${NC} Your cluster name contains non-ASCII characters. This may prevent your nodes from starting up if you have internode encryption turned on."
         exit 1
@@ -64,11 +63,9 @@ validate_cluster_name() {
 }
 
 validate_organization() {
-    local organization="$1"
     if [[ "${organization,,}" != "cassandra" && "${organization,,}" != "elastic" && "${organization,,}" != "opensearch" && "${organization,,}" != "nats" ]]; then
       echo -e "${RED}Invalid input:${NC} instance type should be Cassandra, Elastic, OpenSearch or NATS"
-    else
-      break
+      exit 1
     fi
 }
 
@@ -100,8 +97,6 @@ validate_ip_addresses_provided() {
 }
 
 validate_certificate_validity() {
-  local validity="$1"
-  
   re='^[0-9]+$'
   
   if ! [[ $validity =~ $re ]]; then
@@ -114,8 +109,6 @@ validate_certificate_validity() {
 }
 
 validate_key_size() {
-  local keySize="$1"
-  
   if [[ $keySize != 1024 && $keySize != 2048 && $keySize != 4096 && $keySize != 8192 ]]; then
     echo -e "${RED}Invalid input:${NC} Key size should be one of the following: 1024, 2048, 4096, 8192 bits."
     exit 1
