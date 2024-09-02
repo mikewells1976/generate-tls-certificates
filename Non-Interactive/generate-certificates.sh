@@ -11,13 +11,12 @@ organization="Cassandra"
 clusterName="DMS"
 validity=365
 keySize=4096
-resolveHostName="y"
 generatePwd="y"
 useExisting="n"
 rootCAcrtInput=""
 rootCAkeyInput=""
 rootCAPassword=""
-hostNames=()
+ipAddresses=()
 
 # Display usage instructions
 usage() {
@@ -39,7 +38,7 @@ usage() {
 }
 
 # Parse command-line arguments
-while getopts "d:o:c:v:k:r:g:u:i:j:p:h:" opt; do
+while getopts "d:o:c:v:k:g:u:i:j:p:h:" opt; do
   case ${opt} in
     d ) delete_files="$OPTARG" ;;
     o ) organization="$OPTARG" ;;
@@ -51,24 +50,79 @@ while getopts "d:o:c:v:k:r:g:u:i:j:p:h:" opt; do
     i ) rootCAcrtInput="$OPTARG" ;;
     j ) rootCAkeyInput="$OPTARG" ;;
     p ) rootCAPassword="$OPTARG" ;;
-    h ) IFS=',' read -r -a hostNames <<< "$OPTARG" ;;
+    h ) IFS=',' read -r -a ipAddresses <<< "$OPTARG" ;;
     * ) usage ;;
   esac
 done
 
-# Validate required parameters
-if [[ "$useExisting" == "y" && ( -z "$rootCAcrtInput" || -z "$rootCAkeyInput" ) ]]; then
-  echo -e "${RED}Error: When using an existing Root CA, both -i and -j options are required.${NC}"
-  usage
-else
-  rootCAcrtInput="rootCA.crt"
-  rootCAkeyInput="rootCA.key"
-fi
+validate_cluster_name() {
+    local cluster_name="$1"
+    if [[ $(grep -P "[\x80-\xFF]" <<< $cluster_name) ]]; then
+        echo -e "${RED}Warning:${NC} Your cluster name contains non-ASCII characters. This may prevent your nodes from starting up if you have internode encryption turned on."
+        exit 1
+    fi
+}
 
-if [[ ${#hostNames[@]} -eq 0 ]]; then
-  echo -e "${RED}Error: At least one IP must be provided using the -h option.${NC}"
-  usage
-fi
+validate_organization() {
+    local organization="$1"
+    if [[ "${organization,,}" != "cassandra" && "${organization,,}" != "elastic" && "${organization,,}" != "opensearch" && "${organization,,}" != "nats" ]]; then
+      echo -e "${RED}Invalid input:${NC} instance type should be Cassandra, Elastic, OpenSearch or NATS"
+    else
+      break
+    fi
+}
+
+validate_root_ca_inputs() {
+  if [[ "$useExisting" == "y" ]]; then
+    if [[ -z "$rootCAcrtInput" || -z "$rootCAkeyInput" ]]; then
+      echo -e "${RED}Error: When using an existing Root CA, both -i and -j options are required.${NC}"
+      usage
+    fi
+    if [[ -z "$rootCAPassword" ]]; then
+      echo -e "${RED}Error: When using an existing Root CA, a Root CA password must be provided.${NC}"
+      usage
+    fi
+  else
+    if [[ -n "$rootCAcrtInput" || -n "$rootCAkeyInput" ]]; then
+      echo -e "${YELLOW}Warning: Since 'useExisting' is set to 'n', the provided Root CA inputs will not be used.${NC}"
+    fi
+    rootCAcrtInput="rootCA.crt"
+    rootCAkeyInput="rootCA.key"
+  fi
+}
+
+
+validate_ip_addresses_provided() {
+  if [[ ${#ipAddresses[@]} -eq 0 ]]; then
+    echo -e "${RED}Error: At least one IP must be provided using the -h option.${NC}"
+    usage
+  fi
+}
+
+validate_certificate_validity() {
+  local validity="$1"
+  
+  re='^[0-9]+$'
+  
+  if ! [[ $validity =~ $re ]]; then
+    echo -e "${RED}Invalid input:${NC} Certificate validity should be numeric (days)."
+    exit 1
+  elif [[ $validity -lt 30 || $validity -gt 3650 ]]; then
+    echo -e "${RED}Invalid input:${NC} Certificate validity should be between 30 and 3650 days."
+    exit 1
+  fi
+}
+
+validate_key_size() {
+  local keySize="$1"
+  
+  if [[ $keySize != 1024 && $keySize != 2048 && $keySize != 4096 && $keySize != 8192 ]]; then
+    echo -e "${RED}Invalid input:${NC} Key size should be one of the following: 1024, 2048, 4096, 8192 bits."
+    exit 1
+  fi
+}
+
+
 
 # Check for superuser privileges
 check_superuser() {
@@ -76,6 +130,15 @@ check_superuser() {
     echo -e "${RED}Permission Denied: Please run this script with superuser privileges.${NC}"
     exit 1
   fi
+}
+
+Validate() {
+  validate_cluster_name
+  validate_organization
+  validate_root_ca_inputs
+  validate_ip_addresses_provided
+  validate_certificate_validity
+  validate_key_size
 }
 
 # Clean up files from previous runs
@@ -154,94 +217,94 @@ EOF
   fi
 }
 
-# Generate certificates for each node
-generate_node_certificates() {
-  for host in "${hostNames[@]}"; do
-    echo -e "\nGenerating certificate for node: $host"
-    validate_ip $host
+# Generate certificates for each IP address
+generate_ip_certificates() {
+  for ip in "${ipAddresses[@]}"; do
+    echo -e "\nGenerating certificate for IP: $ip"
+    validate_ip $ip
     if [[ $? -ne 0 ]]; then
-      echo -e "${RED}Invalid IP address provided: $host${NC}"
+      echo -e "${RED}Invalid IP address provided: $ip${NC}"
       exit 1
     fi
-    import_root_ca $host
-    generate_keypair $host
-    create_signing_request $host
-    sign_certificate $host
-    import_signed_certificate $host
-    export_public_key $host
-    echo "Finished for $host"
+    import_root_ca $ip
+    generate_keypair $ip
+    create_signing_request $ip
+    sign_certificate $ip
+    import_signed_certificate $ip
+    export_public_key $ip
+    echo "Finished for $ip"
   done
 }
 
 # Import Root CA into node keystore
 import_root_ca() {
-  local host="$1"
-  keytool -keystore "${host}-node-keystore.jks" -alias rootCA -importcert -file $rootCAcrtInput -keypass $rootCAPassword -storepass $rootCAPassword -noprompt
+  local ip="$1"
+  keytool -keystore "${ip}-node-keystore.jks" -alias rootCA -importcert -file $rootCAcrtInput -keypass $rootCAPassword -storepass $rootCAPassword -noprompt
 }
 
 # Generate key pair for node
 generate_keypair() {
-  local host="$1"
-  keytool -genkeypair -keyalg RSA -alias $host -keystore "${host}-node-keystore.jks" \
+  local ip="$1"
+  keytool -genkeypair -keyalg RSA -alias $ip -keystore "${ip}-node-keystore.jks" \
     -storepass $rootCAPassword -keypass $rootCAPassword -validity $validity -keysize $keySize \
-    -dname "CN=$host, OU=$clusterName, O=$organization, C=BE" -ext san="ip:$host"
+    -dname "CN=$ip, OU=$clusterName, O=$organization, C=BE" -ext san="ip:$ip"
 }
 
 # Create certificate signing request
 create_signing_request() {
-  local host="$1"
-  keytool -keystore "${host}-node-keystore.jks" -alias $host -certreq -file "${host}.csr" \
+  local ip="$1"
+  keytool -keystore "${ip}-node-keystore.jks" -alias $ip -certreq -file "${ip}.csr" \
     -keypass $rootCAPassword -storepass $rootCAPassword
 }
 
 # Sign node certificate with Root CA
 sign_certificate() {
-  local host="$1"
-  echo "subjectAltName=IP:$host" > "${host}.conf"
-  openssl x509 -req -CA $rootCAcrtInput -CAkey $rootCAkeyInput -in "${host}.csr" -out "${host}.crt_signed" -days $validity -CAcreateserial -passin pass:$rootCAPassword -extfile "${host}.conf"
+  local ip="$1"
+  echo "subjectAltName=IP:$ip" > "${ip}.conf"
+  openssl x509 -req -CA $rootCAcrtInput -CAkey $rootCAkeyInput -in "${ip}.csr" -out "${ip}.crt_signed" -days $validity -CAcreateserial -passin pass:$rootCAPassword -extfile "${ip}.conf"
 }
 
 # Import signed certificate into keystore
 import_signed_certificate() {
-  local host="$1"
-  keytool -keystore "${host}-node-keystore.jks" -alias $host -importcert -file "${host}.crt_signed" -keypass $rootCAPassword -storepass $rootCAPassword -noprompt
+  local ip="$1"
+  keytool -keystore "${ip}-node-keystore.jks" -alias $ip -importcert -file "${ip}.crt_signed" -keypass $rootCAPassword -storepass $rootCAPassword -noprompt
 }
 
 # Export public key
 export_public_key() {
-  local host="$1"
-  keytool -exportcert -alias $host -keystore "${host}-node-keystore.jks" -file "${host}-public-key.cer" -storepass $rootCAPassword
-  keytool -importkeystore -srckeystore "${host}-node-keystore.jks" -destkeystore "${host}-node-keystore.p12" -srcstoretype JKS -deststoretype PKCS12 -srcstorepass $rootCAPassword -deststorepass $rootCAPassword
+  local ip="$1"
+  keytool -exportcert -alias $ip -keystore "${ip}-node-keystore.jks" -file "${ip}-public-key.cer" -storepass $rootCAPassword
+  keytool -importkeystore -srckeystore "${ip}-node-keystore.jks" -destkeystore "${ip}-node-keystore.p12" -srcstoretype JKS -deststoretype PKCS12 -srcstorepass $rootCAPassword -deststorepass $rootCAPassword
 }
 
 # Generate Admin certificate
 generate_admin_certificate() {
   echo "Generating the Admin certificate"
 
-	echo "[ req ]
-	distinguished_name  = req_distinguished_name
-	prompt              = no
-	output_password     = \"$rootCAPassword\"
-	default_bits        = $keysize
+  echo "[ req ]
+  distinguished_name  = req_distinguished_name
+  prompt              = no
+  output_password     = \"$rootCAPassword\"
+  default_bits        = $keySize
 
-	[ req_distinguished_name ]
-	C     = BE
-	O     = $organization
-	CN    = Admin
-	OU    = \"$clusterName\"" > Admin.conf
+  [ req_distinguished_name ]
+  C     = BE
+  O     = $organization
+  CN    = Admin
+  OU    = \"$clusterName\"" > Admin.conf
 
 
-	# generate new keypair
-	openssl genrsa -out admin_key.tmp $keysize
+  # generate new keypair
+  openssl genrsa -out admin_key.tmp $keySize
 
-	# convert to PKCS8 format
-	openssl pkcs8 -inform PEM -in admin_key.tmp -topk8 -nocrypt -v1 PBE-SHA1-3DES -out admin-key.pem
+  # convert to PKCS8 format
+  openssl pkcs8 -inform PEM -in admin_key.tmp -topk8 -nocrypt -v1 PBE-SHA1-3DES -out admin-key.pem
 
-	# generate signing request
-	openssl req -new -key admin-key.pem -out admin.csr -config Admin.conf
+  # generate signing request
+  openssl req -new -key admin-key.pem -out admin.csr -config Admin.conf
 
-	# sign the cert with the RootCA
-	openssl x509 -req -CA $rootCAcrtInput -CAkey $rootCAkeyInput -in admin.csr -out admin.pem -days $validity -CAcreateserial -passin pass:$rootCAPassword
+  # sign the cert with the RootCA
+  openssl x509 -req -CA $rootCAcrtInput -CAkey $rootCAkeyInput -in admin.csr -out admin.pem -days $validity -CAcreateserial -passin pass:$rootCAPassword
 }
 
 # Cleanup unused files
@@ -273,11 +336,12 @@ display_certificates_info() {
 
 main() {
   check_superuser
+  Validate
   cleanup_files
   set_opensearch_path
   generate_password
   generate_root_certificate
-  generate_node_certificates
+  generate_ip_certificates
   if [[ "${organization,,}" == "opensearch" ]]; then
     generate_admin_certificate
   fi
