@@ -16,6 +16,7 @@ useExisting="n"
 rootCAcrtInput=""
 rootCAkeyInput=""
 rootCAPassword=""
+sanFile=""
 ipAddresses=()
 
 # Display usage instructions
@@ -32,13 +33,14 @@ usage() {
     -i  Path to existing Root CA certificate
     -j  Path to existing Root CA key
     -p  Root CA password
+    -s  Path to Subject Alternative Names file
     -h  Comma-separated list of IPs
   "
   exit 1
 }
 
 # Parse command-line arguments
-while getopts "d:o:c:v:k:g:u:i:j:p:h:" opt; do
+while getopts "d:o:c:v:k:g:u:i:j:p:s:h:" opt; do
   case ${opt} in
     d ) delete_files="$OPTARG" ;;
     o ) organization="$OPTARG" ;;
@@ -50,10 +52,21 @@ while getopts "d:o:c:v:k:g:u:i:j:p:h:" opt; do
     i ) rootCAcrtInput="$OPTARG" ;;
     j ) rootCAkeyInput="$OPTARG" ;;
     p ) rootCAPassword="$OPTARG" ;;
+    s ) sanFile="$OPTARG" ;;
     h ) IFS=',' read -r -a ipAddresses <<< "$OPTARG" ;;
     * ) usage ;;
   esac
 done
+
+validate_sans_file() {
+  if [[ -z "$sanFile" ]]; then
+    echo -e "${RED}Error: SANs file must be provided using the -s option.${NC}"
+    exit 1
+  elif [[ ! -f "$sanFile" ]]; then
+    echo -e "${RED}Error: SANs file '$sanFile' does not exist.${NC}"
+    exit 1
+  fi
+}
 
 validate_cluster_name() {
     if [[ $(grep -P "[\x80-\xFF]" <<< $cluster_name) ]]; then
@@ -126,6 +139,7 @@ check_superuser() {
 }
 
 Validate() {
+  validate_sans_file
   validate_cluster_name
   validate_organization
   validate_root_ca_inputs
@@ -185,6 +199,36 @@ validate_ip() {
   fi
 }
 
+parse_sans_file() {
+  declare -A sanMap
+  local current_ip=""
+  
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    # Trim leading/trailing whitespace
+    line="$(echo -e "${line}" | sed -e 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+    
+    if [[ -z "$line" ]]; then
+      continue  # Skip empty lines
+    elif [[ $line =~ ^\[(.+)\]$ ]]; then
+      current_ip="${BASH_REMATCH[1]}"
+      sanMap["$current_ip"]=""  # Initialize SAN entry
+    elif [[ -n "$current_ip" ]]; then
+      if [[ -z "${sanMap[$current_ip]}" ]]; then
+        sanMap["$current_ip"]="$line"
+      else
+        sanMap["$current_ip"]+=",${line}"
+      fi
+    else
+      echo -e "${RED}Error: SAN entry found before any node IP is specified.${NC}"
+      exit 1
+    fi
+  done < "$sanFile"
+
+  # Return the associative array
+  echo "$(declare -p sanMap)"
+}
+
+
 # Generate Root CA certificate
 generate_root_certificate() {
   if [[ $useExisting == "y" ]]; then
@@ -211,7 +255,9 @@ EOF
 }
 
 # Generate certificates for each IP address
-generate_ip_certificates() {
+generate_node_certificates() {
+  eval "$(parse_sans_file)"
+
   for ip in "${ipAddresses[@]}"; do
     echo -e "\nGenerating certificate for IP: $ip"
     validate_ip $ip
@@ -219,10 +265,13 @@ generate_ip_certificates() {
       echo -e "${RED}Invalid IP address provided: $ip${NC}"
       exit 1
     fi
+
+    san="${sanMap[$ip]}"
+
     import_root_ca $ip
-    generate_keypair $ip
+    generate_keypair $ip "$san"
     create_signing_request $ip
-    sign_certificate $ip
+    sign_certificate $ip "$san"
     import_signed_certificate $ip
     export_public_key $ip
     echo "Finished for $ip"
@@ -238,9 +287,10 @@ import_root_ca() {
 # Generate key pair for node
 generate_keypair() {
   local ip="$1"
+  local san="$2"
   keytool -genkeypair -keyalg RSA -alias $ip -keystore "${ip}-node-keystore.jks" \
     -storepass $rootCAPassword -keypass $rootCAPassword -validity $validity -keysize $keySize \
-    -dname "CN=$ip, OU=$clusterName, O=$organization, C=BE" -ext san="ip:$ip"
+    -dname "CN=$ip, OU=$clusterName, O=$organization, C=BE" -ext san="$san"
 }
 
 # Create certificate signing request
@@ -253,7 +303,7 @@ create_signing_request() {
 # Sign node certificate with Root CA
 sign_certificate() {
   local ip="$1"
-  echo "subjectAltName=IP:$ip" > "${ip}.conf"
+  echo "subjectAltName=$san" > "${ip}.conf"
   openssl x509 -req -CA $rootCAcrtInput -CAkey $rootCAkeyInput -in "${ip}.csr" -out "${ip}.crt_signed" -days $validity -CAcreateserial -passin pass:$rootCAPassword -extfile "${ip}.conf"
 }
 
@@ -334,7 +384,7 @@ main() {
   set_opensearch_path
   generate_password
   generate_root_certificate
-  generate_ip_certificates
+  generate_node_certificates
   if [[ "${organization,,}" == "opensearch" ]]; then
     generate_admin_certificate
   fi
