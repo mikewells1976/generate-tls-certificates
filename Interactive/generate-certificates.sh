@@ -239,7 +239,7 @@ generate_node_certificates() {
         get_valid_ip
       fi
 
-      get_sans
+      get_sans "$i"
 
       echo "Importing Root CA certificate in node keystore"
       keytool -keystore $i-node-keystore.jks -alias rootCA -importcert -file $rootCAcrt -keypass $rootCAPassword -storepass $rootCAPassword -noprompt
@@ -313,11 +313,13 @@ generate_admin_certificate(){
 
 # Gets additional Subject Alternative Names
 get_sans(){
-    read -p "Please specify additional SANs (Subject Alternative Names) (space separated) [Default: None]: " inputSans
+    read -p "Please specify additional Subject Alternative Names, the hostname and IP will be added by default (space separated): " inputSans
+
     IFS=' ' read -ra sansArr <<< "$inputSans"
 
-    sans="san=ip:$nodeIp"
-    subjectAltNames="subjectAltName=IP:$nodeIp"
+    # add both hostname and ip to the sans by default
+    sans="san=dns:$1,ip:$nodeIp"
+    subjectAltNames="subjectAltName=DNS:$1,IP:$nodeIp"
 
     for san in "${sansArr[@]}"; 
       do
@@ -352,7 +354,7 @@ resolve_and_get_ip() {
     echo "Resolving $i to IP..."
     tempIp=$(dig $i +short)
 
-    if [[ $tempIp =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]] && [[ $tempIp != "127.0.0.1" ]]; then
+    if [[ $tempIp =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]] && [[ $tempIp != 127.* ]]; then
         echo "Resolved $i to IP: $tempIp"
         nodeIp=$tempIp
     else
