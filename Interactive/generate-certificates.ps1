@@ -295,8 +295,8 @@ function Generate-NodeCertificates {
 		$sansArr = $inputSANs -split " " -ne ''  # Remove empty elements
 
 		# Add SANs (Subject Alternative Names)
-		$sans = [System.Text.StringBuilder]::new("san=ip:$nodeIp")
-		$subjectAltNames = [System.Text.StringBuilder]::new("subjectAltName=IP:$NodeIP")
+		$sans = [System.Text.StringBuilder]::new("san=dns$i,ip:$nodeIp")
+		$subjectAltNames = [System.Text.StringBuilder]::new("subjectAltName=DNS$i,IP:$NodeIP")
 		foreach($san in $sansArr)
 		{
 			if (IsIpAddress $san) {
