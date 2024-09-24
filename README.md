@@ -42,14 +42,14 @@ These scripts streamline the creation of TLS certificates to ensure the security
    If it is not installed, consider installing it alongside with [OpenJDK](https://openjdk.org/).
    
 ## Usage 
-### Running `generate-tls-certificates.sh` (Linux/Mac)
+### Running `generate-certificates.sh` (Linux/Mac)
 
 1. Open a terminal.
 2. Navigate to the directory containing `generate-tls-certificates.sh`.
 3. Run the following command:
 
     ```bash
-    chmod +x generate-tls-certificates.sh
+    chmod +x generate-certificates.sh
     ```
 
     This step ensures execution permissions.
@@ -57,17 +57,17 @@ These scripts streamline the creation of TLS certificates to ensure the security
 4. Execute the script:
 
     ```bash
-    ./generate-tls-certificates.sh
+    ./generate-certificates.sh
     ```
 
-### Running `generate-tls-certificates.ps1` (Windows)
+### Running `generate-certificates.ps1` (Windows)
 
 1. Open PowerShell.
 2. Navigate to the directory containing `generate-tls-certificates.ps1`.
 3. Execute the script:
 
     ```powershell
-    .\generate-tls-certificates.ps1
+    .\generate-certificates.ps1
     ```
     
 > [!NOTE]
